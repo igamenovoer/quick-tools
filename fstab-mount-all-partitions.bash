@@ -12,8 +12,9 @@
 # FEATURES:
 #   - Auto-discovers all partitions and generates proper fstab entries
 #   - Skips system partitions (root, boot, workspace) automatically
-#   - Optionally skips Windows system partitions to avoid conflicts
-#   - Creates mount points with full user read/write permissions
+#   - Skips Windows system partitions by default to avoid conflicts
+#   - Creates mount points with universal read/write permissions (777)
+#   - Ensures all users can read/write to mounted filesystems
 #   - Interactive NTFS error detection and repair using ntfsfix
 #   - Conflict detection - warns about already mounted devices
 #   - Uses UUIDs for reliable device identification
@@ -25,29 +26,40 @@
 #   $0 [OPTIONS]
 #
 # OPTIONS:
-#   --skip-windows-partition=true/false    Skip Windows system partition (default: false)
+#   --skip-windows-partition=true/false    Skip Windows system partition (default: true)
 #   --auto-create-mount-point=true/false   Auto-create mount points (default: true)
 #   --mount-point-root=PATH                Mount point root directory (default: /mnt/media)
 #   --mount-now=true/false                 Actually mount the partitions (default: false)
 #                                         (includes interactive NTFS error repair)
 #   --output, -o FILE                      Output fstab file (always prints to screen)
+#   --apply                                Replace /etc/fstab with generated entries
+#                                         (creates backup first, requires root/sudo)
 #   --help, -h                             Show this help message
 #
 # EXAMPLES:
-#   # Generate fstab entries for all partitions
+#   # Generate fstab entries for all partitions (skips Windows by default)
 #   $0
 #
-#   # Generate entries, skip Windows partition, use custom mount root
-#   $0 --skip-windows-partition=true --mount-point-root=/mnt/auto
+#   # Generate entries including Windows partitions
+#   $0 --skip-windows-partition=false
+#
+#   # Generate entries with custom mount root
+#   $0 --mount-point-root=/mnt/auto
 #
 #   # Generate and immediately mount all partitions with NTFS error handling
-#   sudo $0 --mount-now=true --skip-windows-partition=true
+#   sudo $0 --mount-now=true
 #
 #   # Generate entries and save to file
-#   $0 --output /tmp/my-fstab.txt --skip-windows-partition=true
+#   $0 --output /tmp/my-fstab.txt
 #
 #   # Just generate entries without creating mount points
 #   $0 --auto-create-mount-point=false --mount-point-root=/media/custom
+#
+#   # Apply generated entries to system /etc/fstab (creates backup)
+#   sudo $0 --apply
+#
+#   # Include Windows partitions and apply to system
+#   sudo $0 --apply --skip-windows-partition=false
 #
 # NTFS ERROR HANDLING:
 #   When --mount-now=true, the script detects NTFS mounting issues such as:
@@ -67,6 +79,17 @@
 #   - Automatically detects and skips system partitions
 #   - Shows verbose output for all mount operations
 #   - Validates mount success before reporting completion
+#   - When using --apply: Creates timestamped backup of original /etc/fstab
+#   - When using --apply: Validates generated fstab before applying
+#   - When using --apply: Requires root privileges and user confirmation
+#
+# WARNING - --apply option:
+#   The --apply option directly modifies your system's /etc/fstab file!
+#   This affects how your system mounts drives at boot time.
+#   - A backup is created automatically with timestamp
+#   - Root/sudo privileges are required
+#   - User confirmation is required before applying changes
+#   - Use with caution on production systems
 #
 # REQUIREMENTS:
 #   - bash 4.0+
@@ -81,32 +104,36 @@
 #
 # NOTES:
 #   - Generated fstab entries use UUIDs for device identification
-#   - All mount points created with 755 permissions for universal access
-#   - NTFS partitions mounted with full read/write permissions for all users
+#   - All mount points created with 777 permissions for universal access
+#   - NTFS/FAT partitions mounted with full read/write permissions for all users
+#   - ext4/ext3/ext2/xfs/btrfs filesystems get universal write access post-mount
 #   - Script is safe to run multiple times - handles existing mount points gracefully
 #   - When --mount-now=true, auto-create-mount-point is automatically enabled
 #
 # AUTHOR: Generated with Claude Code
-# VERSION: 1.0
+# VERSION: 1.2
 # =============================================================================
 
 # Default values
-SKIP_WINDOWS_PARTITION=false
+SKIP_WINDOWS_PARTITION=true
 AUTO_CREATE_MOUNT_POINT=true
 MOUNT_POINT_ROOT="/mnt/media"
 OUTPUT_FILE=""
 MOUNT_NOW=false
+APPLY_TO_SYSTEM=false
 
 # Function to print usage
 usage() {
     echo "Usage: $0 [OPTIONS]"
     echo "Options:"
-    echo "  --skip-windows-partition=true/false    Skip Windows system partition (default: false)"
+    echo "  --skip-windows-partition=true/false    Skip Windows system partition (default: true)"
     echo "  --auto-create-mount-point=true/false   Auto-create mount points (default: true)"
     echo "  --mount-point-root=PATH                Mount point root directory (default: /mnt/media)"
     echo "  --mount-now=true/false                 Actually mount the partitions (default: false)"
     echo "                                        (includes interactive NTFS error repair)"
     echo "  --output, -o FILE                      Output fstab file (always prints to screen)"
+    echo "  --apply                                Replace /etc/fstab with generated entries"
+    echo "                                        (creates backup first, requires root/sudo)"
     echo "  --help, -h                             Show this help message"
 }
 
@@ -132,6 +159,10 @@ while [[ $# -gt 0 ]]; do
         --output|-o)
             OUTPUT_FILE="$2"
             shift 2
+            ;;
+        --apply)
+            APPLY_TO_SYSTEM=true
+            shift
             ;;
         --help|-h)
             usage
@@ -348,6 +379,134 @@ handle_ntfs_error() {
     return 1  # No NTFS issue detected or user declined
 }
 
+# Function to backup original fstab
+backup_fstab() {
+    local fstab_file="/etc/fstab"
+    local backup_file="/etc/fstab.backup.$(date +%Y%m%d_%H%M%S)"
+    
+    # Check if fstab exists
+    if [[ ! -f "$fstab_file" ]]; then
+        echo "# [APPLY] WARNING: /etc/fstab does not exist, creating new one"
+        return 0
+    fi
+    
+    # Create backup
+    echo "# [APPLY] Creating backup of $fstab_file"
+    if cp "$fstab_file" "$backup_file" 2>/dev/null; then
+        echo "# [APPLY] Backup created: $backup_file"
+        return 0
+    else
+        echo "# [APPLY] ERROR: Failed to create backup of $fstab_file" >&2
+        return 1
+    fi
+}
+
+# Function to validate generated fstab content
+validate_fstab_content() {
+    local content="$1"
+    
+    # Check if content is empty
+    if [[ -z "$content" ]]; then
+        echo "# [APPLY] ERROR: Generated fstab content is empty" >&2
+        return 1
+    fi
+    
+    # Check for basic fstab structure (each line should have 6 fields or be a comment)
+    local line_count=0
+    local invalid_lines=0
+    
+    while IFS= read -r line; do
+        # Skip empty lines and comments
+        [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+        
+        ((line_count++))
+        
+        # Count fields in the line
+        local field_count
+        field_count=$(echo "$line" | awk '{print NF}')
+        
+        # Valid fstab entry should have exactly 6 fields
+        if [[ $field_count -ne 6 ]]; then
+            echo "# [APPLY] WARNING: Invalid fstab line format: $line" >&2
+            ((invalid_lines++))
+        fi
+    done <<< "$content"
+    
+    if [[ $invalid_lines -gt 0 ]]; then
+        echo "# [APPLY] ERROR: Found $invalid_lines invalid fstab lines" >&2
+        return 1
+    fi
+    
+    if [[ $line_count -eq 0 ]]; then
+        echo "# [APPLY] ERROR: No valid fstab entries found" >&2
+        return 1
+    fi
+    
+    echo "# [APPLY] Validation passed: $line_count valid fstab entries"
+    return 0
+}
+
+# Function to apply fstab to system
+apply_fstab_to_system() {
+    local fstab_content="$1"
+    local fstab_file="/etc/fstab"
+    
+    # Check if running as root
+    if [[ $EUID -ne 0 ]]; then
+        echo "# [APPLY] ERROR: Root privileges required to modify /etc/fstab" >&2
+        echo "# [APPLY] Please run with sudo: sudo $0 --apply" >&2
+        return 1
+    fi
+    
+    # Validate the generated content
+    if ! validate_fstab_content "$fstab_content"; then
+        echo "# [APPLY] ERROR: Generated fstab content failed validation" >&2
+        return 1
+    fi
+    
+    # Create backup of original fstab
+    if ! backup_fstab; then
+        echo "# [APPLY] ERROR: Failed to create backup, aborting" >&2
+        return 1
+    fi
+    
+    # Show warning and get confirmation
+    echo "# [APPLY] WARNING: About to replace /etc/fstab with generated entries"
+    echo "# [APPLY] This will affect system boot behavior"
+    echo "# [APPLY] Current /etc/fstab has been backed up"
+    echo "# [APPLY] Continue? (y/N)"
+    read -r response
+    
+    case "$response" in
+        [Yy]|[Yy][Ee][Ss])
+            echo "# [APPLY] Applying generated fstab entries to $fstab_file"
+            ;;
+        *)
+            echo "# [APPLY] Operation cancelled by user"
+            return 1
+            ;;
+    esac
+    
+    # Write the new fstab file
+    {
+        echo "# Auto-generated fstab entries"
+        echo "# Generated by fstab-mount-all-partitions.bash"
+        echo "# Date: $(date)"
+        echo "# Original fstab backed up"
+        echo ""
+        echo -e "$fstab_content"
+    } > "$fstab_file"
+    
+    if [[ $? -eq 0 ]]; then
+        echo "# [APPLY] Successfully applied fstab entries to $fstab_file"
+        echo "# [APPLY] You can now run 'sudo mount -a' to mount all entries"
+        return 0
+    else
+        echo "# [APPLY] ERROR: Failed to write to $fstab_file" >&2
+        return 1
+    fi
+}
+
 # Function to mount a partition
 mount_partition() {
     local device="$1"
@@ -362,7 +521,7 @@ mount_partition() {
     if [[ ! -d "$mount_point" ]]; then
         echo "# [MOUNT-NOW] Creating mount point: $mount_point"
         if mkdir -p "$mount_point" 2>/dev/null; then
-            chmod 755 "$mount_point" 2>/dev/null
+            chmod 777 "$mount_point" 2>/dev/null
             echo "# [MOUNT-NOW] Created mount point: $mount_point"
         else
             echo "# [MOUNT-NOW] Failed to create mount point: $mount_point" >&2
@@ -408,6 +567,19 @@ mount_partition() {
         # Verify the mount
         if is_mount_point_mounted "$mount_point"; then
             echo "# [MOUNT-NOW] Mount verified: $mount_point"
+            
+            # Ensure read/write access for all users on native Unix filesystems
+            if [[ "$fs_type" =~ ^(ext[234]|xfs|btrfs)$ ]]; then
+                echo "# [MOUNT-NOW] Setting universal access permissions for $fs_type filesystem"
+                chmod 777 "$mount_point" 2>/dev/null
+                # Create a test directory to verify write access
+                if [[ -w "$mount_point" ]]; then
+                    echo "# [MOUNT-NOW] Universal write access verified for $mount_point"
+                else
+                    echo "# [MOUNT-NOW] WARNING: Universal write access not available for $mount_point"
+                fi
+            fi
+            
             return 0
         else
             echo "# [MOUNT-NOW] Mount verification failed: $mount_point" >&2
@@ -425,6 +597,19 @@ mount_partition() {
                 # Verify the mount
                 if is_mount_point_mounted "$mount_point"; then
                     echo "# [MOUNT-NOW] Mount verified: $mount_point"
+                    
+                    # Ensure read/write access for all users on native Unix filesystems
+                    if [[ "$fs_type" =~ ^(ext[234]|xfs|btrfs)$ ]]; then
+                        echo "# [MOUNT-NOW] Setting universal access permissions for $fs_type filesystem"
+                        chmod 777 "$mount_point" 2>/dev/null
+                        # Create a test directory to verify write access
+                        if [[ -w "$mount_point" ]]; then
+                            echo "# [MOUNT-NOW] Universal write access verified for $mount_point"
+                        else
+                            echo "# [MOUNT-NOW] WARNING: Universal write access not available for $mount_point"
+                        fi
+                    fi
+                    
                     return 0
                 else
                     echo "# [MOUNT-NOW] Mount verification failed: $mount_point" >&2
@@ -455,6 +640,7 @@ main() {
     echo "#   auto-create-mount-point: $AUTO_CREATE_MOUNT_POINT"
     echo "#   mount-point-root: $MOUNT_POINT_ROOT"
     echo "#   mount-now: $MOUNT_NOW"
+    echo "#   apply-to-system: $APPLY_TO_SYSTEM"
     echo ""
     
     # Get all block devices with filesystem information
@@ -521,7 +707,7 @@ main() {
             if [[ ! -d "$mount_point" ]]; then
                 if mkdir -p "$mount_point" 2>/dev/null; then
                     # Set permissions for all users
-                    chmod 755 "$mount_point" 2>/dev/null
+                    chmod 777 "$mount_point" 2>/dev/null
                     echo "# Created mount point: $mount_point"
                     created_dirs="$created_dirs$mount_point\n"
                 else
@@ -567,6 +753,21 @@ main() {
         echo "# Output also saved to: $OUTPUT_FILE"
     fi
     
+    # Apply to system fstab if requested
+    if [[ "$APPLY_TO_SYSTEM" == "true" ]]; then
+        echo ""
+        echo "# ==============================================="
+        echo "# APPLYING TO SYSTEM /etc/fstab"
+        echo "# ==============================================="
+        
+        if apply_fstab_to_system "$fstab_content"; then
+            echo "# [APPLY] Successfully applied fstab entries to system"
+        else
+            echo "# [APPLY] Failed to apply fstab entries to system" >&2
+            exit 1
+        fi
+    fi
+    
     # Summary
     echo ""
     echo "# Summary:"
@@ -577,8 +778,12 @@ main() {
     fi
     if [[ "$MOUNT_NOW" == "true" ]]; then
         echo "# - Mounting partitions now..."
+    elif [[ "$APPLY_TO_SYSTEM" == "true" ]]; then
+        echo "# - Applied entries to system /etc/fstab"
+        echo "# - Run 'sudo mount -a' to mount all entries"
     else
         echo "# - To apply these changes, copy the entries above to /etc/fstab"
+        echo "# - Or run with --apply to automatically update /etc/fstab"
         echo "# - Then run: sudo mount -a"
     fi
     
