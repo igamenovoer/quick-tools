@@ -26,43 +26,45 @@
 #   $0 [OPTIONS]
 #
 # OPTIONS:
-#   --skip-windows-partition=true/false    Skip Windows system partition (default: true)
-#   --auto-create-mount-point=true/false   Auto-create mount points (default: true)
-#   --mount-point-root=PATH                Mount point root directory (default: /mnt/media)
-#   --mount-now=true/false                 Actually mount the partitions (default: false)
+#   --with-windows-partition              Include Windows partitions (default: skip them)
+#   --no-mount-point-creation             Don't create mount points (default: create them)
+#   --mount-point-root PATH               Mount point root directory (default: /media)
+#   --mount-now                           Actually mount the partitions (default: don't mount)
 #                                         (includes interactive NTFS error repair)
-#   --output, -o FILE                      Output fstab file (always prints to screen)
-#   --apply                                Replace /etc/fstab with generated entries
+#   --output, -o FILE                     Output fstab file (always prints to screen)
+#   --apply                               Replace /etc/fstab with generated entries
 #                                         (creates backup first, requires root/sudo)
-#   --help, -h                             Show this help message
+#   --help, -h                            Show this help message
+#
+# IMPORTANT: Only devices with UUIDs will generate fstab entries. Devices without UUIDs are skipped.
 #
 # EXAMPLES:
 #   # Generate fstab entries for all partitions (skips Windows by default)
 #   $0
 #
 #   # Generate entries including Windows partitions
-#   $0 --skip-windows-partition=false
+#   $0 --with-windows-partition
 #
 #   # Generate entries with custom mount root
-#   $0 --mount-point-root=/mnt/auto
+#   $0 --mount-point-root /mnt/auto
 #
 #   # Generate and immediately mount all partitions with NTFS error handling
-#   sudo $0 --mount-now=true
+#   sudo $0 --mount-now
 #
 #   # Generate entries and save to file
 #   $0 --output /tmp/my-fstab.txt
 #
 #   # Just generate entries without creating mount points
-#   $0 --auto-create-mount-point=false --mount-point-root=/media/custom
+#   $0 --no-mount-point-creation --mount-point-root /media/custom
 #
 #   # Apply generated entries to system /etc/fstab (creates backup)
 #   sudo $0 --apply
 #
 #   # Include Windows partitions and apply to system
-#   sudo $0 --apply --skip-windows-partition=false
+#   sudo $0 --apply --with-windows-partition
 #
 # NTFS ERROR HANDLING:
-#   When --mount-now=true, the script detects NTFS mounting issues such as:
+#   When --mount-now is specified, the script detects NTFS mounting issues such as:
 #   - Windows hibernation state
 #   - Unclean/dirty filesystem
 #   - Metadata cache conflicts
@@ -108,7 +110,7 @@
 #   - NTFS/FAT partitions mounted with full read/write permissions for all users
 #   - ext4/ext3/ext2/xfs/btrfs filesystems get universal write access post-mount
 #   - Script is safe to run multiple times - handles existing mount points gracefully
-#   - When --mount-now=true, auto-create-mount-point is automatically enabled
+#   - When --mount-now is specified, mount point creation is automatically enabled
 #
 # AUTHOR: Generated with Claude Code
 # VERSION: 1.2
@@ -117,46 +119,60 @@
 # Default values
 SKIP_WINDOWS_PARTITION=true
 AUTO_CREATE_MOUNT_POINT=true
-MOUNT_POINT_ROOT="/mnt/media"
+MOUNT_POINT_ROOT="/media"
 OUTPUT_FILE=""
 MOUNT_NOW=false
 APPLY_TO_SYSTEM=false
+
+# Script section markers for fstab
+SCRIPT_SECTION_START="# === BEGIN fstab-mount-all-partitions.bash entries ==="
+SCRIPT_SECTION_END="# === END fstab-mount-all-partitions.bash entries ==="
 
 # Function to print usage
 usage() {
     echo "Usage: $0 [OPTIONS]"
     echo "Options:"
-    echo "  --skip-windows-partition=true/false    Skip Windows system partition (default: true)"
-    echo "  --auto-create-mount-point=true/false   Auto-create mount points (default: true)"
-    echo "  --mount-point-root=PATH                Mount point root directory (default: /mnt/media)"
-    echo "  --mount-now=true/false                 Actually mount the partitions (default: false)"
+    echo "  --with-windows-partition              Include Windows partitions (default: skip them)"
+    echo "  --no-mount-point-creation             Don't create mount points (default: create them)"
+    echo "  --mount-point-root PATH               Mount point root directory (default: /media)"
+    echo "  --mount-now                           Actually mount the partitions (default: don't mount)"
     echo "                                        (includes interactive NTFS error repair)"
-    echo "  --output, -o FILE                      Output fstab file (always prints to screen)"
-    echo "  --apply                                Replace /etc/fstab with generated entries"
+    echo "  --output, -o FILE                     Output fstab file (always prints to screen)"
+    echo "  --apply                               Replace /etc/fstab with generated entries"
     echo "                                        (creates backup first, requires root/sudo)"
-    echo "  --help, -h                             Show this help message"
+    echo "  --help, -h                            Show this help message"
+    echo ""
+    echo "Note: Only devices with UUIDs will generate fstab entries"
 }
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --skip-windows-partition=*)
-            SKIP_WINDOWS_PARTITION="${1#*=}"
+        --with-windows-partition)
+            SKIP_WINDOWS_PARTITION=false
             shift
             ;;
-        --auto-create-mount-point=*)
-            AUTO_CREATE_MOUNT_POINT="${1#*=}"
+        --no-mount-point-creation)
+            AUTO_CREATE_MOUNT_POINT=false
             shift
             ;;
-        --mount-point-root=*)
-            MOUNT_POINT_ROOT="${1#*=}"
-            shift
+        --mount-point-root)
+            if [[ $# -lt 2 ]]; then
+                echo "Error: --mount-point-root requires a value" >&2
+                exit 1
+            fi
+            MOUNT_POINT_ROOT="$2"
+            shift 2
             ;;
-        --mount-now=*)
-            MOUNT_NOW="${1#*=}"
+        --mount-now)
+            MOUNT_NOW=true
             shift
             ;;
         --output|-o)
+            if [[ $# -lt 2 ]]; then
+                echo "Error: --output requires a value" >&2
+                exit 1
+            fi
             OUTPUT_FILE="$2"
             shift 2
             ;;
@@ -176,7 +192,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# When mount-now is true, force auto-create-mount-point to true
+# When --mount-now is specified, force mount point creation (override --no-mount-point-creation)
 if [[ "$MOUNT_NOW" == "true" ]]; then
     AUTO_CREATE_MOUNT_POINT=true
 fi
@@ -379,10 +395,88 @@ handle_ntfs_error() {
     return 1  # No NTFS issue detected or user declined
 }
 
+# Function to parse fstab and separate original from script-generated content
+parse_existing_fstab() {
+    local fstab_file="/etc/fstab"
+    original_fstab_content=""
+    
+    # Check if fstab exists
+    if [[ ! -f "$fstab_file" ]]; then
+        return 0
+    fi
+    
+    local in_script_section=false
+    
+    # Read the entire fstab file
+    while IFS= read -r line; do
+        # Check for script section markers
+        if [[ "$line" == "$SCRIPT_SECTION_START" ]]; then
+            in_script_section=true
+            continue
+        elif [[ "$line" == "$SCRIPT_SECTION_END" ]]; then
+            in_script_section=false
+            continue
+        fi
+        
+        # If not in script section, this is original content
+        if [[ "$in_script_section" == false ]]; then
+            original_fstab_content="${original_fstab_content}${line}"$'\n'
+            
+            # Parse non-comment, non-empty lines for conflict detection
+            if [[ -n "$line" && ! "$line" =~ ^[[:space:]]*# && -n "${line// }" ]]; then
+                local device mount_point
+                read -r device mount_point _ <<< "$line"
+                
+                # Store in arrays for conflict checking (only original entries)
+                existing_devices+=("$device")
+                existing_mount_points+=("$mount_point")
+            fi
+        fi
+        # Skip script-generated lines completely
+    done < "$fstab_file"
+}
+
+# Function to check if device or mount point conflicts with existing fstab
+check_fstab_conflict() {
+    local new_device="$1"
+    local new_mount_point="$2"
+    local new_uuid="$3"
+    
+    # Check against existing devices
+    for existing_device in "${existing_devices[@]}"; do
+        # Direct device match
+        if [[ "$existing_device" == "$new_device" ]]; then
+            return 1  # Conflict found
+        fi
+        
+        # UUID match
+        if [[ -n "$new_uuid" && "$existing_device" == "UUID=$new_uuid" ]]; then
+            return 1  # Conflict found
+        fi
+        
+        # Check if existing is UUID and matches our device's UUID
+        if [[ "$existing_device" =~ ^UUID= ]]; then
+            local existing_uuid="${existing_device#UUID=}"
+            if [[ -n "$new_uuid" && "$existing_uuid" == "$new_uuid" ]]; then
+                return 1  # Conflict found
+            fi
+        fi
+    done
+    
+    # Check against existing mount points
+    for existing_mount_point in "${existing_mount_points[@]}"; do
+        if [[ "$existing_mount_point" == "$new_mount_point" ]]; then
+            return 1  # Conflict found
+        fi
+    done
+    
+    return 0  # No conflict
+}
+
 # Function to backup original fstab
 backup_fstab() {
     local fstab_file="/etc/fstab"
-    local backup_file="/etc/fstab.backup.$(date +%Y%m%d_%H%M%S)"
+    local backup_file="/etc/fstab.$(date +%Y-%m-%d-%H-%M-%S).bak"
     
     # Check if fstab exists
     if [[ ! -f "$fstab_file" ]]; then
@@ -487,14 +581,18 @@ apply_fstab_to_system() {
             ;;
     esac
     
-    # Write the new fstab file
+    # Write the new fstab file (original content + script section)
     {
-        echo "# Auto-generated fstab entries"
-        echo "# Generated by fstab-mount-all-partitions.bash"
-        echo "# Date: $(date)"
-        echo "# Original fstab backed up"
+        # Write original fstab content (excludes any previous script section)
+        printf "%s" "$original_fstab_content"
+        
+        # Add script-generated section with clear markers
         echo ""
-        echo -e "$fstab_content"
+        echo "$SCRIPT_SECTION_START"
+        echo "# Generated on: $(date)"
+        echo "# DO NOT EDIT THIS SECTION MANUALLY - Use the script to regenerate"
+        printf "%s" "$fstab_content"
+        echo "$SCRIPT_SECTION_END"
     } > "$fstab_file"
     
     if [[ $? -eq 0 ]]; then
@@ -636,11 +734,36 @@ main() {
     echo "# Generated by fstab-mount-all-partitions.bash"
     echo "# Date: $(date)"
     echo "# Options used:"
-    echo "#   skip-windows-partition: $SKIP_WINDOWS_PARTITION"
-    echo "#   auto-create-mount-point: $AUTO_CREATE_MOUNT_POINT"
+    echo "#   with-windows-partition: $([[ $SKIP_WINDOWS_PARTITION == false ]] && echo "true" || echo "false")"
+    echo "#   no-mount-point-creation: $([[ $AUTO_CREATE_MOUNT_POINT == false ]] && echo "true" || echo "false")"
     echo "#   mount-point-root: $MOUNT_POINT_ROOT"
     echo "#   mount-now: $MOUNT_NOW"
     echo "#   apply-to-system: $APPLY_TO_SYSTEM"
+    echo ""
+    
+    # Check if running as root and warn if not
+    if [[ $EUID -ne 0 ]]; then
+        echo "# WARNING: Not running as root user"
+        echo "# Some functionalities may not work properly for non-root user:"
+        echo "#   - Creating mount points may fail if parent directories have restrictive permissions"
+        echo "#   - Mounting partitions (--mount-now) will likely fail"
+        echo "#   - Applying to system fstab (--apply) will fail"
+        echo "#   - NTFS error repair may not work"
+        echo "# Consider running with 'sudo' for full functionality"
+        echo ""
+    fi
+    
+    # Arrays to store existing fstab entries for conflict detection
+    declare -a existing_devices=()
+    declare -a existing_mount_points=()
+    
+    # Variable to store original fstab content (excluding script section)
+    local original_fstab_content=""
+    
+    # Always read existing fstab entries for conflict detection and output
+    echo "# Reading existing /etc/fstab entries (excluding script-generated section)..."
+    parse_existing_fstab
+    echo "# Found ${#existing_devices[@]} original fstab entries"
     echo ""
     
     # Get all block devices with filesystem information
@@ -662,6 +785,12 @@ main() {
         
         # Skip if no device or no filesystem type
         [[ -z "$device" || -z "$fstype" ]] && continue
+        
+        # Skip if no UUID (only create entries for devices with UUIDs)
+        if [[ -z "$uuid" || "$uuid" == "" ]]; then
+            echo "# Skipping $device: no UUID available"
+            continue
+        fi
         
         # Add /dev/ prefix if not present
         [[ "$device" != /dev/* ]] && device="/dev/$device"
@@ -709,7 +838,7 @@ main() {
                     # Set permissions for all users
                     chmod 777 "$mount_point" 2>/dev/null
                     echo "# Created mount point: $mount_point"
-                    created_dirs="$created_dirs$mount_point\n"
+                    created_dirs="$created_dirs$mount_point"$'\n'
                 else
                     echo "# Failed to create mount point: $mount_point" >&2
                 fi
@@ -718,16 +847,17 @@ main() {
             fi
         fi
         
-        # Generate fstab entry
-        local fstab_entry
-        if [[ -n "$uuid" && "$uuid" != "" ]]; then
-            fstab_entry="UUID=$uuid $mount_point $fs_type $options 0 0"
-        else
-            fstab_entry="$device $mount_point $fs_type $options 0 0"
+        # Check for conflicts with existing fstab entries
+        if ! check_fstab_conflict "$device" "$mount_point" "$uuid"; then
+            echo "# CONFLICT: Skipping $device -> $mount_point (conflicts with existing fstab entry)"
+            continue
         fi
         
-        echo "$fstab_entry"
-        fstab_content="$fstab_content$fstab_entry\n"
+        # Generate fstab entry (always use UUID since we only process devices with UUIDs)
+        local fstab_entry="UUID=$uuid $mount_point $fs_type $options 0 0"
+        
+        # Add entry to our content (don't print individual entries yet)
+        fstab_content="$fstab_content$fstab_entry"$'\n'
         
         # Store partition information for mounting if --mount-now is enabled
         if [[ "$MOUNT_NOW" == "true" ]]; then
@@ -740,17 +870,47 @@ main() {
         fi
     done < <(lsblk -rno NAME,FSTYPE,LABEL,UUID | grep -v '^NAME' | grep -v '^$')
     
+    # Generate and display the complete fstab content (original + new entries)
+    echo "# =============================================="
+    echo "# COMPLETE FSTAB CONTENT (original + new)"
+    echo "# =============================================="
+    echo ""
+    
+    # Show original fstab content first
+    if [[ -n "$original_fstab_content" ]]; then
+        printf "%s" "$original_fstab_content"
+    fi
+    
+    # Add script section with new entries
+    if [[ -n "$fstab_content" ]]; then
+        echo ""
+        echo "$SCRIPT_SECTION_START"
+        echo "# Generated on: $(date)"
+        echo "# DO NOT EDIT THIS SECTION MANUALLY - Use the script to regenerate"
+        printf "%s" "$fstab_content"
+        echo "$SCRIPT_SECTION_END"
+    fi
+    
+    echo ""
+    
     # Write to output file if specified
     if [[ -n "$OUTPUT_FILE" ]]; then
         {
-            echo "# Auto-generated fstab entries"
-            echo "# Generated by fstab-mount-all-partitions.bash"
-            echo "# Date: $(date)"
-            echo ""
-            echo -e "$fstab_content"
+            # Write the same complete fstab content to file
+            if [[ -n "$original_fstab_content" ]]; then
+                printf "%s" "$original_fstab_content"
+            fi
+            
+            if [[ -n "$fstab_content" ]]; then
+                echo ""
+                echo "$SCRIPT_SECTION_START"
+                echo "# Generated on: $(date)"
+                echo "# DO NOT EDIT THIS SECTION MANUALLY - Use the script to regenerate"
+                printf "%s" "$fstab_content"
+                echo "$SCRIPT_SECTION_END"
+            fi
         } > "$OUTPUT_FILE"
-        echo ""
-        echo "# Output also saved to: $OUTPUT_FILE"
+        echo "# Complete fstab content also saved to: $OUTPUT_FILE"
     fi
     
     # Apply to system fstab if requested
@@ -771,10 +931,10 @@ main() {
     # Summary
     echo ""
     echo "# Summary:"
-    echo "# - Processed $(echo -e "$fstab_content" | grep -c UUID) partitions"
+    echo "# - Processed $(printf "%s" "$fstab_content" | grep -c UUID) partitions"
     if [[ "$AUTO_CREATE_MOUNT_POINT" == "true" && -n "$created_dirs" ]]; then
         echo "# - Created mount points:"
-        echo -e "$created_dirs" | sed 's/^/#   /'
+        printf "%s" "$created_dirs" | sed 's/^/#   /'
     fi
     if [[ "$MOUNT_NOW" == "true" ]]; then
         echo "# - Mounting partitions now..."
