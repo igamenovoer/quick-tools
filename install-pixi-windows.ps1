@@ -132,10 +132,10 @@ if ($createCommonEnv -match '^y') {
         # Add the common env bin directory to PATH
         $commonEnvBinPath = ""
         if ($sharedConfig) {
-            $commonEnvBinPath = Join-Path -Path $pixiInstallPath -ChildPath "envs\common\bin"
+            $commonEnvBinPath = Join-Path -Path $pixiInstallPath -ChildPath "envs\common"
         } else {
             $userHome = $env:USERPROFILE
-            $commonEnvBinPath = Join-Path -Path "$userHome\.pixi" -ChildPath "envs\common\bin"
+            $commonEnvBinPath = Join-Path -Path "$userHome\.pixi" -ChildPath "envs\common"
         }
         
         Write-Host "Adding 'common' environment scripts to system PATH: '$commonEnvBinPath'"
