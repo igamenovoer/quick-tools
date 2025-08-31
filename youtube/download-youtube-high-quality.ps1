@@ -5,15 +5,20 @@ Usage: download-youtube-high-quality.ps1 [options] <video_url>
 Downloads a YouTube video with various options for quality, audio, subtitles, and time range.
 
 Options:
-  --help                Show this help message and exit.
-  --no-sound            Download the video without audio.
-  --start-time arg      The start time of the video segment to download (HH:MM:SS).
-  --end-time arg        The end time of the video segment to download (HH:MM:SS).
-  --subtitle            Download subtitles for the video.
-  --sub-lang arg        The full language name for the subtitles (e.g., "english", "chinese-simplified").
-                        Defaults to "english". Case-insensitive.
-  --embed-subtitle      Embed the subtitles into the video file.
-  --proxy arg           Use the specified HTTP/HTTPS/SOCKS proxy.
+    --help                Show this help message and exit.
+    --no-sound            Download the video without audio.
+    --start-time arg      The start time of the video segment to download (HH:MM:SS).
+    --end-time arg        The end time of the video segment to download (HH:MM:SS).
+    --subtitle            Download subtitles for the video.
+    --sub-lang arg        The full language name for the subtitles (e.g., "english", "chinese-simplified").
+                                                Defaults to "english". Case-insensitive.
+    --embed-subtitle      Embed the subtitles into the video file.
+    --proxy arg           Use the specified HTTP/HTTPS/SOCKS proxy.
+    --output, -o arg      Output filename or directory. If a directory is specified, the video will be saved
+                                                there with the default naming ("%(title)s.%(ext)s"). If a filename is specified, the
+                                                video will be saved with that name. Default: downloads directory.
+
+Deprecated (still accepted for now): --output-dir, --output-template
 
 Examples:
   # Download a video with audio and default English subtitles
@@ -91,6 +96,9 @@ $subtitle = $false
 $userRequestedLang = "english" # Default language
 $embedSubtitle = $false
 $proxy = $null
+$outputPath = $null  # Could be file or directory
+$legacyOutputDir = $null
+$legacyOutputTemplate = $null
 
 # Parse command line arguments
 if ($args.Contains("--help")) {
@@ -160,6 +168,37 @@ while ($i -lt $scriptArgs.Count) {
                 exit 1
             }
         }
+        "--output" {
+            if ($i + 1 -lt $scriptArgs.Count) {
+                $outputPath = $scriptArgs[$i+1]
+                $i += 2
+            } else {
+                Write-Host "Error: --output/-o requires a value."
+                exit 1
+            }
+        }
+        "-o" {
+            if ($i + 1 -lt $scriptArgs.Count) {
+                $outputPath = $scriptArgs[$i+1]
+                $i += 2
+            } else {
+                Write-Host "Error: --output/-o requires a value."
+                exit 1
+            }
+        }
+        # Legacy / deprecated options (will be removed later)
+        "--output-dir" {
+            if ($i + 1 -lt $scriptArgs.Count) {
+                $legacyOutputDir = $scriptArgs[$i+1]
+                $i += 2
+            } else { Write-Host "Error: --output-dir requires a value."; exit 1 }
+        }
+        "--output-template" {
+            if ($i + 1 -lt $scriptArgs.Count) {
+                $legacyOutputTemplate = $scriptArgs[$i+1]
+                $i += 2
+            } else { Write-Host "Error: --output-template requires a value."; exit 1 }
+        }
         default {
             Write-Host "Error: Unknown argument $($scriptArgs[$i])"
             exit 1
@@ -181,11 +220,51 @@ if (!(Get-Command yt-dlp -ErrorAction SilentlyContinue)) {
     exit 1
 }
 
-# Create output directory if it doesn't exist
-$outputDir = "downloads"
-if (!(Test-Path $outputDir)) {
-    New-Item -ItemType Directory -Path $outputDir | Out-Null
-    Write-Host "Created output directory: $outputDir"
+# Determine effective output behavior
+# Rules for --output/-o (string in $outputPath):
+# - If omitted: use downloads dir with default template.
+# - If provided and has extension: treat as explicit filename (use as-is).
+# - If provided and ends with path separator OR resolves to existing directory (with or without extension): treat as directory (use default template inside it).
+# - If provided, no extension, does NOT end with separator, and does NOT currently exist as directory: treat as base filename (append .%(ext)s automatically).
+if (-not $outputPath) {
+    # Fallback to legacy options if present
+    if ($legacyOutputDir -or $legacyOutputTemplate) {
+        Write-Host "(Deprecated) Using legacy --output-dir/--output-template options." -ForegroundColor Yellow
+        if (-not $legacyOutputDir) { $legacyOutputDir = "downloads" }
+        if (!(Test-Path $legacyOutputDir)) { New-Item -ItemType Directory -Path $legacyOutputDir -Force | Out-Null }
+        $effectiveOutputDir = (Resolve-Path $legacyOutputDir).Path
+        $effectiveTemplate = if ($legacyOutputTemplate) { $legacyOutputTemplate } else { "%(title)s.%(ext)s" }
+    } else {
+        $effectiveOutputDir = Join-Path (Get-Location) "downloads"
+        if (!(Test-Path $effectiveOutputDir)) { New-Item -ItemType Directory -Path $effectiveOutputDir -Force | Out-Null; Write-Host "Created output directory: $effectiveOutputDir" }
+        $effectiveTemplate = "%(title)s.%(ext)s"
+    }
+} else {
+    # Interpret outputPath per updated rules
+    $endsWithSep = $outputPath -match '[\\/]$'
+    $isExistingDir = (Test-Path $outputPath -PathType Container)
+    $hasExtension = [IO.Path]::HasExtension($outputPath)
+    if ($endsWithSep -or $isExistingDir) {
+        # Directory case
+        if (-not $isExistingDir) { New-Item -ItemType Directory -Path $outputPath -Force | Out-Null; Write-Host "Created output directory: $outputPath" }
+        $effectiveOutputDir = (Resolve-Path $outputPath).Path
+        $effectiveTemplate = "%(title)s.%(ext)s"
+    } else {
+        if ($hasExtension) {
+            # Explicit filename including extension (we still let yt-dlp choose actual ext if template contains %(ext)s)
+            $parent = (Split-Path -Parent $outputPath)
+            if ($parent -and -not (Test-Path $parent)) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
+            $effectiveOutputDir = if ($parent) { (Resolve-Path $parent).Path } else { (Get-Location).Path }
+            $effectiveTemplate = Split-Path -Leaf $outputPath
+        } else {
+            # No extension -> treat as base filename (automatic extension via .%(ext)s)
+            $parent = (Split-Path -Parent $outputPath)
+            $leaf = Split-Path -Leaf $outputPath
+            if ($parent -and -not (Test-Path $parent)) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
+            $effectiveOutputDir = if ($parent) { (Resolve-Path $parent).Path } else { (Get-Location).Path }
+            $effectiveTemplate = "$leaf.%(ext)s"
+        }
+    }
 }
 
 # Set format based on whether sound is needed or not
@@ -198,13 +277,15 @@ $format = if ($noSound) {
 # Download the video in high quality mp4 format
 Write-Host "Downloading video from: $video_url"
 Write-Host "Audio: $(if ($noSound) { 'Disabled' } else { 'Enabled' })"
+Write-Host "Output directory: $effectiveOutputDir"
+Write-Host "Output template: $effectiveTemplate"
 
 # Build yt-dlp command
 $ytDlpArgs = @(
     $video_url,
     "--format", $format,
     "--merge-output-format", "mp4",
-    "--output", "$outputDir/%(title)s.%(ext)s",
+    "--output", (Join-Path $effectiveOutputDir $effectiveTemplate),
     "--no-playlist",
     "--parse-metadata", "webpage_url:%(meta_source_url)s",
     "--parse-metadata", "description:%(meta_description)s",
@@ -276,4 +357,4 @@ if ($subtitle) {
 
 yt-dlp $ytDlpArgs
 
-Write-Host "Download completed. Video saved in $outputDir folder."
+Write-Host "Download completed. Saved to: $(Join-Path $effectiveOutputDir $effectiveTemplate) (final extension may differ)."

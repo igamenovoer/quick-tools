@@ -208,41 +208,65 @@ if ! command -v yt-dlp &> /dev/null; then
     exit 1
 fi
 
-# Handle output path and filename template
+# Handle output path and filename template with refined rules:
+# 1. No --output: use downloads dir and default template
+# 2. Directory (existing OR ends with /): save inside with %(title)s.%(ext)s
+# 3. Explicit filename (leaf has an extension): use as-is
+# 4. Base filename (no extension, not a dir): append .%(ext)s automatically
 if [[ -z "$output_path" ]]; then
-    # Default behavior: create downloads directory
     output_dir="downloads"
     if [[ ! -d "$output_dir" ]]; then
-        mkdir -p "$output_dir"
-        echo "Created output directory: $output_dir"
+        mkdir -p "$output_dir" && echo "Created output directory: $output_dir"
     fi
     output_template="$output_dir/%(title)s.%(ext)s"
     subtitle_template="$output_dir/%(title)s.%(ext)s"
-elif [[ -d "$output_path" ]]; then
-    # Output path is a directory
-    output_template="$output_path/%(title)s.%(ext)s"
-    subtitle_template="$output_path/%(title)s.%(ext)s"
-    echo "Saving to directory: $output_path"
-elif [[ "$output_path" == *"/"* ]]; then
-    # Output path contains directory separators - create directory if needed
-    output_dir=$(dirname "$output_path")
-    if [[ ! -d "$output_dir" ]]; then
-        mkdir -p "$output_dir"
-        echo "Created output directory: $output_dir"
-    fi
-    # Extract filename without extension for subtitle template
-    filename=$(basename "$output_path")
-    filename_no_ext="${filename%.*}"
-    dir_path=$(dirname "$output_path")
-    output_template="$output_path"
-    subtitle_template="$dir_path/$filename_no_ext.%(ext)s"
-    echo "Saving as: $output_path"
 else
-    # Output path is just a filename in current directory
-    filename_no_ext="${output_path%.*}"
-    output_template="$output_path"
-    subtitle_template="$filename_no_ext.%(ext)s"
-    echo "Saving as: $output_path"
+    # Normalize potential Windows-style backslashes if run under MSYS/WSL (defensive)
+    output_path="${output_path//\\/\/}"
+    if [[ -d "$output_path" || "$output_path" == */ ]]; then
+        # Directory case
+        # Trim trailing slash for consistency
+        output_path="${output_path%/}"
+        if [[ ! -d "$output_path" ]]; then
+            mkdir -p "$output_path" && echo "Created output directory: $output_path"
+        fi
+        output_template="$output_path/%(title)s.%(ext)s"
+        subtitle_template="$output_path/%(title)s.%(ext)s"
+        echo "Saving to directory: $output_path"
+    else
+        dir_part=$(dirname "$output_path")
+        base_part=$(basename "$output_path")
+        # Detect if base part has an extension (dot not at start and followed by chars)
+    if [[ "$base_part" == *.* && "$base_part" != .* ]]; then
+            # Explicit filename with extension
+            if [[ "$dir_part" != "." && ! -d "$dir_part" ]]; then
+                mkdir -p "$dir_part" && echo "Created output directory: $dir_part"
+            fi
+            output_template="$output_path"
+            # Subtitle template: base without existing extension, then .%(ext)s
+            base_no_ext="${base_part%.*}"
+            if [[ "$dir_part" == "." ]]; then
+                subtitle_template="$base_no_ext.%(ext)s"
+            else
+                subtitle_template="$dir_part/$base_no_ext.%(ext)s"
+            fi
+            echo "Saving as explicit filename: $output_path"
+        else
+            # Base filename without extension -> append .%(ext)s
+            if [[ "$dir_part" != "." && ! -d "$dir_part" ]]; then
+                mkdir -p "$dir_part" && echo "Created output directory: $dir_part" 
+            fi
+            if [[ "$dir_part" == "." ]]; then
+                output_template="$base_part.%(ext)s"
+                subtitle_template="$base_part.%(ext)s"
+                echo "Saving as base filename (auto extension): $base_part.%(ext)s"
+            else
+                output_template="$dir_part/$base_part.%(ext)s"
+                subtitle_template="$dir_part/$base_part.%(ext)s"
+                echo "Saving as base filename (auto extension): $dir_part/$base_part.%(ext)s"
+            fi
+        fi
+    fi
 fi
 
 # Set format based on whether sound is needed or not
@@ -255,6 +279,7 @@ fi
 # Download the video in high quality mp4 format
 echo "Downloading video from: $video_url"
 echo "Audio: $(if [[ "$no_sound" == true ]]; then echo 'Disabled'; else echo 'Enabled'; fi)"
+echo "Output template: $output_template"
 
 # Build yt-dlp command
 yt_dlp_args=(
