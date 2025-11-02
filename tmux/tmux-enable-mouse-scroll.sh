@@ -61,13 +61,14 @@ echo "Backed up ${TMUX_CONF} -> ${BACKUP_DIR}/tmux.conf.${STAMP}.bak"
 echo "Using history-limit: ${HISTORY_LIMIT}"
 
 # Desired config block
-read -r -d '' CONFIG_BLOCK <<EOF
+# Note: read -r -d '' returns exit code 1, so we capture it with || true
+read -r -d '' CONFIG_BLOCK <<'EOF' || true
 # --- BEGIN auto-added by tmux-enable-mouse-scroll.sh ---
 # Enable mouse support (scroll, pane resize, selection)
 set -g mouse on
 
 # Increase scrollback history so wheel scrolling is useful
-set -g history-limit ${HISTORY_LIMIT}
+set -g history-limit HISTORY_LIMIT_PLACEHOLDER
 
 # Smoother wheel behavior: auto-enter copy-mode and scroll 1 line per tick
 # Works for both default and vi copy-mode key tables
@@ -83,6 +84,9 @@ bind -T copy-mode-vi WheelUpPane   send-keys -X -N 1 scroll-up
 bind -T copy-mode-vi WheelDownPane send-keys -X -N 1 scroll-down
 # --- END auto-added by tmux-enable-mouse-scroll.sh ---
 EOF
+
+# Substitute the actual history limit value
+CONFIG_BLOCK="${CONFIG_BLOCK//HISTORY_LIMIT_PLACEHOLDER/$HISTORY_LIMIT}"
 
 # Remove any previous auto-added block to keep things clean/idempotent
 if grep -q "BEGIN auto-added by tmux-enable-mouse-scroll.sh" "${TMUX_CONF}"; then
