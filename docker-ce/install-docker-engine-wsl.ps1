@@ -171,12 +171,9 @@ function Install-DockerEngine($DistroName) {
 
   Write-Info "Detected Ubuntu $codename ($arch)"
 
-  # Step 2: Write docker.list using a here-document (avoids command substitution issues)
-  $writeDockerListCmd = @"
-cat > /etc/apt/sources.list.d/docker.list <<'DOCKERLIST'
-deb [arch=$arch signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $codename stable
-DOCKERLIST
-"@
+  # Step 2: Write docker.list using echo (more reliable than here-document in bash -lc)
+  $dockerListLine = "deb [arch=$arch signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $codename stable"
+  $writeDockerListCmd = "echo '$dockerListLine' > /etc/apt/sources.list.d/docker.list"
   Invoke-WSL -DistroName $DistroName -Command $writeDockerListCmd -AsRoot
 
   # Step 3: Verify the file was written correctly

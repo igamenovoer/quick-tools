@@ -1,6 +1,6 @@
-Here’s the clean, supported way to run **Docker on Windows 11 without Docker Desktop**: install Docker Engine *inside WSL 2 (Ubuntu)* and use it from that Linux shell (or optionally from Windows via a TCP socket).
+Here's the clean, supported way to run **Docker on Windows 11 without Docker Desktop**: install Docker Engine *inside WSL 2 (Ubuntu)* and use it from that Linux shell (or optionally from Windows via a TCP socket).
 
-# 1) Install WSL 2 + Ubuntu
+## 1) Install WSL 2 + Ubuntu
 
 Open **PowerShell (Admin)** and run:
 
@@ -9,9 +9,9 @@ wsl --install -d Ubuntu
 wsl --set-default-version 2
 ```
 
-Then launch “Ubuntu” from Start to finish the first-run setup. ([Microsoft Learn][1])
+Then launch "Ubuntu" from Start to finish the first-run setup. ([Microsoft Learn][1])
 
-# 2) Enable systemd in WSL (so `dockerd` runs as a service)
+## 2) Enable systemd in WSL (so `dockerd` runs as a service)
 
 Inside Ubuntu:
 
@@ -42,7 +42,7 @@ systemctl status
 
 You should see systemd active. ([Microsoft Learn][2])
 
-# 3) Install Docker Engine (CE) in Ubuntu
+## 3) Install Docker Engine (CE) in Ubuntu
 
 Still inside Ubuntu:
 
@@ -75,7 +75,7 @@ sudo docker run hello-world
 
 **Note:** If you need GPU/CUDA support for machine learning or scientific computing, see the **NVIDIA GPU Support** section below.
 
-# 4) Let your normal user run `docker` (no `sudo`)
+## 4) Let your normal user run `docker` (no `sudo`)
 
 ```bash
 sudo groupadd docker 2>/dev/null || true
@@ -86,7 +86,7 @@ docker run hello-world
 
 (Adding yourself to the `docker` group grants root-equivalent access to the daemon—understand the security trade-off.) ([Docker Documentation][4])
 
-# 5) Make Docker start automatically in WSL
+## 5) Make Docker start automatically in WSL
 
 ```bash
 sudo systemctl enable docker.service
@@ -99,22 +99,72 @@ sudo systemctl enable containerd.service
 
 ## (Optional) Use the Windows **docker.exe** CLI without Desktop
 
-The simplest workflow is to run `docker …` **inside the Ubuntu (WSL) shell**. If you prefer using PowerShell/CMD, expose the Linux daemon on localhost and point the Windows CLI at it:
+The simplest workflow is to run `docker …` **inside the Ubuntu (WSL) shell**. If you prefer using PowerShell/CMD, you have two options:
+
+### Option A: Use WSL Docker via PowerShell Wrapper (Recommended)
+
+Add these functions to your PowerShell profile (`notepad $PROFILE`):
+
+```powershell
+function docker { wsl docker @args }
+function docker-compose { wsl docker compose @args }
+```
+
+Then use Docker commands normally in PowerShell: `docker ps`, `docker run`, etc.
+
+### Option B: Expose Docker Daemon via TCP
+
+Expose the Linux daemon on localhost and point the Windows CLI at it.
+
+**Important:** When Docker is managed by **systemd** (enabled in step 2), you **cannot** use `/etc/docker/daemon.json` to configure the `hosts` setting because systemd passes its own `-H` flag, causing a conflict. Instead, use a systemd override:
 
 **In Ubuntu (WSL):**
 
 ```bash
-# bind dockerd to unix socket + localhost:2375 (no TLS)
-echo '{"hosts":["unix:///var/run/docker.sock","tcp://127.0.0.1:2375"]}' | \
-  sudo tee /etc/docker/daemon.json
+# Create systemd override directory
+sudo mkdir -p /etc/systemd/system/docker.service.d
+
+# Create override configuration
+sudo tee /etc/systemd/system/docker.service.d/override.conf > /dev/null <<EOF
+[Service]
+ExecStart=
+ExecStart=/usr/bin/dockerd -H unix:///var/run/docker.sock -H tcp://127.0.0.1:2375 --containerd=/run/containerd/containerd.sock
+EOF
+
+# Reload systemd and restart Docker
+sudo systemctl daemon-reload
 sudo systemctl restart docker
+
+# Verify Docker is listening on TCP
+sudo netstat -tlnp | grep 2375 || sudo ss -tlnp | grep 2375
 ```
 
 **In Windows (PowerShell):**
 
 ```powershell
+# Set for current session
 $env:DOCKER_HOST="tcp://127.0.0.1:2375"
+
+# Or set permanently for your user
+[System.Environment]::SetEnvironmentVariable('DOCKER_HOST', 'tcp://127.0.0.1:2375', 'User')
+# (Restart PowerShell after setting permanently)
+
+# Test connection
 docker version
+```
+
+**Troubleshooting:**
+
+If `systemctl restart docker` fails with an error like:
+```
+the following directives are specified both as a flag and in the configuration file: hosts
+```
+
+Remove any conflicting `/etc/docker/daemon.json` file:
+```bash
+sudo rm -f /etc/docker/daemon.json
+sudo systemctl daemon-reload
+sudo systemctl restart docker
 ```
 
 ⚠️ Opening the Docker API over TCP **without TLS is insecure**; keep it bound to `127.0.0.1` only, or configure proper TLS as per the docs. ([Docker Documentation][5])
@@ -313,19 +363,19 @@ services:
 
 ---
 
-### Sources
+## Sources
 
-#### Docker & WSL Setup
+### Docker & WSL Setup
 * Microsoft: **Install WSL** and **enable systemd in WSL**. ([Microsoft Learn][1], [Microsoft Learn][2])
 * Docker: **Install Docker Engine on Ubuntu**, **Linux post-install**, **remote access to daemon**. ([Docker Documentation][3], [Docker Documentation][4], [Docker Documentation][5])
 * Docker blog: **WSL 2 best practices** (store code in Linux FS, run CLI in WSL). ([Docker][6])
 
-#### NVIDIA GPU Support
+### NVIDIA GPU Support
 * NVIDIA: **Container Toolkit Installation Guide** (official installation instructions). ([NVIDIA Docs][8])
 * NVIDIA: **CUDA on WSL User Guide** (WSL-specific requirements and driver info). ([NVIDIA Docs][9])
 * NVIDIA: **NVIDIA Container Toolkit Documentation** (runtime configuration and usage). ([NVIDIA Docs][10])
 
-#### Additional Resources
+### Additional Resources
 * Microsoft: **Windows Containers** (for native Windows container scenarios). ([Microsoft Learn][7])
 
 ---
