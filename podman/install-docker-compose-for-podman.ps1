@@ -6,13 +6,16 @@
     This script installs Docker Compose (the official Docker Compose v2 binary) which works
     seamlessly with Podman through its Docker-compatible socket API. This is the same approach
     used by Podman Desktop's "Setup Compose" feature.
-    
+
     Downloads the official Docker Compose v2 binary from GitHub releases and installs it
     to C:\Program Files\Docker\docker-compose.exe, making it available for both 'docker-compose'
     and 'podman compose' commands.
 
 .PARAMETER Version
     Specific version to install (e.g., 'v2.40.3'). If not specified, installs the latest version.
+
+.PARAMETER Force
+    Force reinstallation without prompting if Docker Compose is already installed.
 
 .EXAMPLE
     .\install-podman-compose.ps1
@@ -22,17 +25,25 @@
     .\install-podman-compose.ps1 -Version v2.40.3
     Installs specific version of Docker Compose.
 
+.EXAMPLE
+    .\install-podman-compose.ps1 -Force
+    Force reinstall the latest version, even if already installed.
+
+.EXAMPLE
+    .\install-podman-compose.ps1 -Version v2.40.3 -Force
+    Force reinstall a specific version without prompting.
+
 .NOTES
     Author: Quick Tools
-    Date: 2025-11-16
-    
+    Date: 2025-11-24
+
     This script replicates Podman Desktop's compose installation:
     - Downloads official Docker Compose v2 from GitHub releases
     - Installs to C:\Program Files\Docker\docker-compose.exe
     - Works with Podman through Docker-compatible socket
     - No Python dependency required
     - Latest version: v2.40.3 (as of Nov 2025)
-    
+
     For more information:
     - Docker Compose: https://github.com/docker/compose
     - Podman Desktop: https://podman-desktop.io/docs/compose/setting-up-compose
@@ -41,7 +52,10 @@
 [CmdletBinding()]
 param(
     [Parameter(HelpMessage="Specific version to install (e.g., 'v2.40.3')")]
-    [string]$Version
+    [string]$Version,
+
+    [Parameter(HelpMessage="Force reinstallation without prompting")]
+    [switch]$Force
 )
 
 # Set error action preference
@@ -58,12 +72,15 @@ if (-not $isAdmin) {
     # Build the argument list
     $scriptPath = $MyInvocation.MyCommand.Path
     $argList = "-NoExit", "-Command", "& { cd '$PWD'; & '$scriptPath'"
-    
+
     # Add parameters if provided
     if ($Version) {
         $argList += "-Version '$Version'"
     }
-    
+    if ($Force) {
+        $argList += "-Force"
+    }
+
     $argList += "; Write-Host ''; Read-Host 'Press Enter to close' }"
     
     # Start new PowerShell process with admin rights
@@ -120,6 +137,9 @@ Write-Host ""
 # Check if compose is already installed
 Write-Host "[2/5] Checking for existing Compose installation..." -ForegroundColor Yellow
 
+$installPath = "$env:ProgramFiles\Docker"
+$exePath = "$installPath\docker-compose.exe"
+
 if (Test-CommandExists "docker-compose") {
     try {
         $installedVersion = (docker-compose version --short 2>&1) | Out-String
@@ -130,17 +150,37 @@ if (Test-CommandExists "docker-compose") {
     catch {
         Write-Host "  ✓ Docker Compose is already installed" -ForegroundColor Green
     }
-    Write-Host ""
-    Write-Host "Compose is already installed. Skipping installation." -ForegroundColor Cyan
-    Write-Host ""
-    Write-Host "To reinstall or upgrade:" -ForegroundColor Yellow
-    Write-Host "  1. Remove existing: Remove-Item '$env:ProgramFiles\Docker\docker-compose.exe' -Force" -ForegroundColor Gray
-    Write-Host "  2. Run this script again" -ForegroundColor Gray
-    Write-Host ""
-    exit 0
+
+    if ($Force) {
+        Write-Host ""
+        Write-Host "  -Force specified: Removing existing installation..." -ForegroundColor Yellow
+        try {
+            if (Test-Path $exePath) {
+                Remove-Item $exePath -Force -ErrorAction Stop
+                Write-Host "  ✓ Removed existing docker-compose.exe" -ForegroundColor Green
+            }
+        }
+        catch {
+            Write-Host "  ✗ Failed to remove existing installation: $_" -ForegroundColor Red
+            Write-Host "  Please close any applications using docker-compose and try again." -ForegroundColor Yellow
+            exit 1
+        }
+    }
+    else {
+        Write-Host ""
+        Write-Host "Compose is already installed. Skipping installation." -ForegroundColor Cyan
+        Write-Host ""
+        Write-Host "To reinstall or upgrade, use -Force flag:" -ForegroundColor Yellow
+        Write-Host "  .\install-podman-compose.ps1 -Force" -ForegroundColor Gray
+        Write-Host ""
+        exit 0
+    }
+}
+else {
+    Write-Host "  No existing installation found." -ForegroundColor Yellow
 }
 
-Write-Host "  No existing installation found. Proceeding with installation..." -ForegroundColor Yellow
+Write-Host "  Proceeding with installation..." -ForegroundColor Yellow
 Write-Host ""
 
 # Determine version to install
@@ -176,8 +216,6 @@ if ([Environment]::Is64BitOperatingSystem) {
 }
 
 $downloadUrl = "https://github.com/docker/compose/releases/download/$Version/docker-compose-windows-$arch.exe"
-$installPath = "$env:ProgramFiles\Docker"
-$exePath = "$installPath\docker-compose.exe"
 
 Write-Host "  Download URL: $downloadUrl" -ForegroundColor Gray
 Write-Host "  Install path: $exePath" -ForegroundColor Gray
