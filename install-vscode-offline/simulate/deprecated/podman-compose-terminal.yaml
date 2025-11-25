@@ -1,0 +1,28 @@
+version: "3.8"
+
+services:
+  terminal:
+    container_name: vscode-terminal
+    image: vscode-airgap-terminal:latest
+    # If you prefer to build instead of using a prebuilt image, uncomment:
+    # build:
+    #   context: .
+    #   dockerfile: terminal.Dockerfile
+    environment:
+      DISPLAY: ":0"
+      DONT_PROMPT_WSL_INSTALL: "1"
+    volumes:
+      # X11 socket from WSLg (mounted into the Podman machine)
+      # so GUI apps from the container can connect.
+      - /mnt/wslg/.X11-unix:/tmp/.X11-unix
+      # Offline package cache (VS Code tarball, etc.)
+      - ./pkgs:/pkgs-host:ro
+      # Optional: mount additional offline VS Code tarballs into /vscode
+      # - ./vscode:/vscode:ro
+    networks:
+      - vscode-airgap-net
+    command: sleep infinity
+
+networks:
+  vscode-airgap-net:
+    external: true

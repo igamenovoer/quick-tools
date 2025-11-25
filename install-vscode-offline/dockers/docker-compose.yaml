@@ -1,0 +1,61 @@
+# Docker Compose configuration for VS Code offline installation testing
+# This creates an isolated Ubuntu 24.04 environment with no internet access
+# but SSH connectivity for testing Remote-SSH functionality
+
+version: '3.8'
+
+services:
+  vscode-ssh-test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: vscode-test-ubuntu
+    hostname: vscode-test
+    
+    # Map SSH port 22 to host port 4444
+    ports:
+      - "4444:22"
+    
+    # Network configuration: isolated internal network with NO internet access
+    networks:
+      - isolated_network
+    
+    # Disable DNS to prevent any external connectivity
+    dns: []
+    
+    # Environment variables
+    environment:
+      - TERM=xterm-256color
+      - LC_ALL=C.UTF-8
+      - LANG=C.UTF-8
+    
+    # Restart policy
+    restart: unless-stopped
+    
+    # Resource limits (optional, can be adjusted)
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '1.0'
+          memory: 512M
+    
+    # Health check to ensure SSH is running
+    healthcheck:
+      test: ["CMD", "pgrep", "-x", "sshd"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+networks:
+  isolated_network:
+    # Internal network with no external gateway
+    # This ensures the container has NO internet access
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16

@@ -1,0 +1,38 @@
+version: "3.8"
+
+services:
+  terminal:
+    container_name: vscode-terminal
+    image: localhost/vscode-airgap-terminal:latest
+    # Chromium (Electron/VS Code) requires increased shared memory
+    shm_size: '2gb'
+    environment:
+      DISPLAY: ":0"
+      DONT_PROMPT_WSL_INSTALL: "1"
+    volumes:
+      # X11 socket from WSLg (mounted into the Podman machine)
+      - /mnt/wslg/.X11-unix:/tmp/.X11-unix
+      # Offline artifacts (VS Code tarball, extensions, etc.)
+      - ./pkgs:/pkgs-host:ro
+    networks:
+      - vscode-airgap-both
+    # Keep container running; launch VS Code manually via:
+    # podman exec -it vscode-terminal bash -c "code --disable-gpu --no-sandbox --disable-dev-shm-usage"
+    command: sleep infinity
+
+  server:
+    container_name: vscode-remote
+    image: localhost/vscode-airgap-server:latest
+    environment:
+      TZ: "UTC"
+    volumes:
+      # Share the same offline artifacts (includes code-server tarball)
+      - ./pkgs:/pkgs-host:ro
+    networks:
+      - vscode-airgap-both
+    command: ["/bin/bash", "-c", "/usr/local/bin/startup-info.sh && /usr/sbin/sshd -D"]
+
+networks:
+  vscode-airgap-both:
+    driver: bridge
+    internal: true

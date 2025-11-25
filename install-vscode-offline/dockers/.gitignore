@@ -1,0 +1,36 @@
+# Docker test environment - gitignore
+
+# Test package directory (downloaded VS Code packages)
+test-package/
+*.tar.gz
+*.exe
+*.vsix
+
+# Docker volumes and persistent data
+volumes/
+data/
+
+# Docker logs
+*.log
+
+# Temporary files
+tmp/
+temp/
+.tmp/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# PowerShell
+*.ps1xml
+
+# Backup files
+*.bak
+*.backup
+*~
