@@ -132,6 +132,11 @@ try {
 }
 Write-Host ""
 
+# Get the actual user (not SYSTEM or Administrator) who owns the Podman data
+# This is needed because the script runs as admin but files should remain owned by the user
+$actualUser = $env:USERNAME
+Write-Host "  User for file ownership: $actualUser" -ForegroundColor Cyan
+
 # Step 3: Move existing data
 Write-Host "[3/5] Moving existing data..." -ForegroundColor Yellow
 if (Test-Path $SourceDir) {
@@ -155,6 +160,19 @@ if (Test-Path $SourceDir) {
                     try {
                         Move-Item $item.FullName $TargetDir -Force -ErrorAction Stop
                         $moved++
+                        
+                        # Preserve user ownership on moved files (especially important for .vhdx)
+                        $movedPath = Join-Path $TargetDir $item.Name
+                        if (Test-Path $movedPath) {
+                            try {
+                                $acl = Get-Acl $movedPath
+                                $user = New-Object System.Security.Principal.NTAccount($actualUser)
+                                $acl.SetOwner($user)
+                                Set-Acl -Path $movedPath -AclObject $acl -ErrorAction SilentlyContinue
+                            } catch {
+                                # Silently continue if ownership change fails - not critical
+                            }
+                        }
                     } catch {
                         $failed++
                         Write-Host "  ! Warning: Could not move $($item.Name): $($_.Exception.Message)" -ForegroundColor Yellow
@@ -164,6 +182,27 @@ if (Test-Path $SourceDir) {
                 Write-Host "  ✓ Moved $moved items" -ForegroundColor Green
                 if ($failed -gt 0) {
                     Write-Host "  ! Warning: $failed items could not be moved (may be locked)" -ForegroundColor Yellow
+                }
+                
+                # Recursively fix ownership on all moved files to ensure user ownership
+                Write-Host "  Ensuring user ownership on all files..." -ForegroundColor White
+                try {
+                    $allFiles = Get-ChildItem $TargetDir -Recurse -Force -ErrorAction SilentlyContinue
+                    $fixedCount = 0
+                    foreach ($file in $allFiles) {
+                        try {
+                            $acl = Get-Acl $file.FullName
+                            $user = New-Object System.Security.Principal.NTAccount($actualUser)
+                            $acl.SetOwner($user)
+                            Set-Acl -Path $file.FullName -AclObject $acl -ErrorAction SilentlyContinue
+                            $fixedCount++
+                        } catch {
+                            # Continue on errors
+                        }
+                    }
+                    Write-Host "  ✓ Ownership set to $actualUser for $fixedCount items" -ForegroundColor Green
+                } catch {
+                    Write-Host "  ! Warning: Could not verify all file ownership" -ForegroundColor Yellow
                 }
             } else {
                 Write-Host "  ✓ No data to move" -ForegroundColor Green
