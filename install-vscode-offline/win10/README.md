@@ -1,0 +1,1 @@
+scripts to be used in windows 10/11 to install vscode offline.
