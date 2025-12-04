@@ -9,7 +9,6 @@ A collection of scripts and tools to automate various daily tasks, system config
 - **[doc-processing/](doc-processing/README.md)**: Document conversion tools (HTML to Markdown).
 - **[docker-ce/](docker-ce/README.md)**: Docker Engine installation on Windows (WSL2) without Docker Desktop.
 - **[install-vscode-offline/](install-vscode-offline/README.md)**: Scripts for offline VS Code installation and Remote-SSH setup.
-- **[installation/](installation/README.md)**: General installation scripts (Docker, NVIDIA tools, system apps).
 - **[linux-misc/](linux-misc/README.md)**: Miscellaneous Linux system administration scripts.
 - **[others/](others/README.md)**: Uncategorized scripts.
 - **[pixi/](pixi/README.md)**: Pixi package manager setup for Windows.
