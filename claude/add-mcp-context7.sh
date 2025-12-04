@@ -5,15 +5,16 @@ set -euo pipefail
 # Ensure the Context7 MCP server is configured for Claude Code.
 # If it already exists under the chosen scope, it is removed first, then re-added.
 #
-# Default behavior: scope = user
-# Command used to add:
-#   claude mcp add -s user context7-mcp -- npx -y @upstash/context7-mcp
+# Default behavior: scope = user, mcp-name = context7-mcp
+# Runner preference: bunx > npx (picks first available)
+# Note: context7-mcp is only available as npm package, uvx is not supported.
+# Command used to add (example with npx):
+#   claude mcp add-json -s user context7-mcp '{"command":"npx","args":["-y","@upstash/context7-mcp"]}'
 #
 # Options:
-#   --scope <user|global>   Override scope (default: user)
+#   -s / --scope <scope>    Override scope: local, user, or project (default: user)
+#   --mcp-name <name>       Override MCP server name (default: context7-mcp)
 #   --dry-run               Show actions without executing
-#   --no-replace            Skip re-adding if already present (exit 0)
-#   --force                 Continue even if removal reports not found
 #   -q / --quiet            Less output
 #   -h / --help             Show usage
 #
@@ -23,9 +24,8 @@ set -euo pipefail
 
 SCRIPT_NAME=$(basename "$0")
 SCOPE="user"
+MCP_NAME="context7-mcp"
 DRY_RUN=0
-NO_REPLACE=0
-FORCE=0
 QUIET=0
 
 COLOR_DIM="\033[2m"; COLOR_OK="\033[32m"; COLOR_WARN="\033[33m"; COLOR_ERR="\033[31m"; COLOR_RESET="\033[0m"
@@ -41,19 +41,32 @@ usage(){ grep -E '^# ' "$0" | sed 's/^# //'; }
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -h|--help) usage; exit 0 ;;
-    --scope) shift; SCOPE=${1:-}; [[ -z $SCOPE ]] && die "--scope requires value" ;;
+    -s|--scope) shift; SCOPE=${1:-}; [[ -z $SCOPE ]] && die "--scope requires value" ;;
+    --mcp-name) shift; MCP_NAME=${1:-}; [[ -z $MCP_NAME ]] && die "--mcp-name requires value" ;;
     --dry-run) DRY_RUN=1 ;;
-    --no-replace) NO_REPLACE=1 ;;
-    --force) FORCE=1 ;;
     -q|--quiet) QUIET=1 ;;
     *) die "Unknown argument: $1" ;;
   esac
   shift || true
 done
 
-[[ $SCOPE != "user" && $SCOPE != "global" ]] && die "Invalid scope '$SCOPE' (expected user|global)"
+[[ $SCOPE != "local" && $SCOPE != "user" && $SCOPE != "project" ]] && die "Invalid scope '$SCOPE' (expected local|user|project)"
 
 command -v claude >/dev/null 2>&1 || die "'claude' CLI not found in PATH"
+
+# Detect runner: bunx > npx (context7-mcp is npm-only, no PyPI package)
+detect_runner(){
+  if command -v bunx >/dev/null 2>&1; then
+    echo "bunx"
+  elif command -v npx >/dev/null 2>&1; then
+    echo "npx"
+  else
+    die "No suitable runner found (bunx or npx required; context7-mcp is npm-only)"
+  fi
+}
+
+RUNNER=$(detect_runner)
+log "Using runner: $RUNNER"
 
 server_exists(){
   # Using list + grep; tolerate list failures
@@ -62,53 +75,55 @@ server_exists(){
     warn "Could not list MCP servers (continuing)."
     return 1
   fi
-  # Simple substring match; refine if list format changes
-  echo "$list" | grep -qE "(^|[[:space:]])context7-mcp( |$)"
+  # Match server name at start of line followed by colon (e.g., "context7-mcp: ...")
+  echo "$list" | grep -qE "^${MCP_NAME}:"
 }
 
 remove_server(){
-  log "Removing existing context7-mcp (scope=$SCOPE)"
+  log "Removing existing $MCP_NAME (scope=$SCOPE)"
   if [[ $DRY_RUN -eq 1 ]]; then
-    log "DRY-RUN: claude mcp remove -s $SCOPE context7-mcp"
+    log "DRY-RUN: claude mcp remove -s $SCOPE $MCP_NAME"
     return 0
   fi
-  if ! claude mcp remove -s "$SCOPE" context7-mcp 2>&1; then
-    if [[ $FORCE -eq 1 ]]; then
-      warn "Removal reported an issue; continuing due to --force"
-    else
-      warn "Removal failed; continuing to add anyway"
-    fi
-  fi
+  # Ignore errors - server may not exist
+  claude mcp remove -s "$SCOPE" "$MCP_NAME" 2>/dev/null || true
 }
 
 add_server(){
-  log "Adding context7-mcp via npx (scope=$SCOPE)"
-  local cmd=(claude mcp add -s "$SCOPE" context7-mcp -- npx -y @upstash/context7-mcp)
+  log "Adding $MCP_NAME via $RUNNER (scope=$SCOPE)"
+  
+  # Build JSON config based on runner
+  local json_config
+  case "$RUNNER" in
+    bunx)
+      json_config='{"command":"bunx","args":["@upstash/context7-mcp"]}'
+      ;;
+    npx)
+      json_config='{"command":"npx","args":["-y","@upstash/context7-mcp"]}'
+      ;;
+  esac
+  
   if [[ $DRY_RUN -eq 1 ]]; then
-    log "DRY-RUN: ${cmd[*]}"
+    log "DRY-RUN: claude mcp add-json -s $SCOPE $MCP_NAME '$json_config'"
     return 0
   fi
-  "${cmd[@]}"
+  
+  claude mcp add-json -s "$SCOPE" "$MCP_NAME" "$json_config"
 }
 
 main(){
-  if server_exists; then
-    if [[ $NO_REPLACE -eq 1 ]]; then
-      ok "context7-mcp already present (scope=$SCOPE); skipping due to --no-replace"
-      exit 0
-    fi
-    remove_server
-  else
-    log "context7-mcp not currently configured for scope=$SCOPE"
-  fi
+  # Always remove first to ensure clean overwrite
+  remove_server
+  
   add_server
+  
   if server_exists; then
-    ok "context7-mcp configured successfully (scope=$SCOPE)"
+    ok "$MCP_NAME configured successfully (scope=$SCOPE) using $RUNNER"
   else
     if [[ $DRY_RUN -eq 1 ]]; then
       ok "DRY-RUN complete (no changes applied)"
     else
-      warn "context7-mcp not detected after add (check 'claude mcp list')."
+      warn "$MCP_NAME not detected after add (check 'claude mcp list')."
     fi
   fi
 }

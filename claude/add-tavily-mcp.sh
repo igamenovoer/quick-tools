@@ -14,8 +14,6 @@ set -euo pipefail
 #   -s / --scope <scope>    Override scope: local, user, or project (default: user)
 #   --mcp-name <name>       Override MCP server name (default: tavily)
 #   --dry-run               Show actions without executing
-#   --no-replace            Skip re-adding if already present (exit 0)
-#   --force                 Continue even if removal reports not found
 #   -q / --quiet            Less output
 #   -h / --help             Show usage
 #
@@ -27,8 +25,6 @@ SCRIPT_NAME=$(basename "$0")
 SCOPE="user"
 MCP_NAME="tavily"
 DRY_RUN=0
-NO_REPLACE=0
-FORCE=0
 QUIET=0
 
 COLOR_DIM="\033[2m"; COLOR_OK="\033[32m"; COLOR_WARN="\033[33m"; COLOR_ERR="\033[31m"; COLOR_RESET="\033[0m"
@@ -47,8 +43,6 @@ while [[ $# -gt 0 ]]; do
     -s|--scope) shift; SCOPE=${1:-}; [[ -z $SCOPE ]] && die "--scope requires value" ;;
     --mcp-name) shift; MCP_NAME=${1:-}; [[ -z $MCP_NAME ]] && die "--mcp-name requires value" ;;
     --dry-run) DRY_RUN=1 ;;
-    --no-replace) NO_REPLACE=1 ;;
-    --force) FORCE=1 ;;
     -q|--quiet) QUIET=1 ;;
     *) die "Unknown argument: $1" ;;
   esac
@@ -108,13 +102,8 @@ remove_server(){
     log "DRY-RUN: claude mcp remove -s $SCOPE $MCP_NAME"
     return 0
   fi
-  if ! claude mcp remove -s "$SCOPE" "$MCP_NAME" 2>&1; then
-    if [[ $FORCE -eq 1 ]]; then
-      warn "Removal reported an issue; continuing due to --force"
-    else
-      warn "Removal failed; continuing to add anyway"
-    fi
-  fi
+  # Ignore errors - server may not exist
+  claude mcp remove -s "$SCOPE" "$MCP_NAME" 2>/dev/null || true
 }
 
 add_server(){
@@ -138,7 +127,7 @@ EOF
       ;;
     uvx)
       json_config=$(cat <<EOF
-{"command":"uvx","args":["tavily-mcp"],"env":{"TAVILY_API_KEY":"${api_key}"}}
+{"command":"uvx","args":["mcp-tavily"],"env":{"TAVILY_API_KEY":"${api_key}"}}
 EOF
 )
       ;;
@@ -158,15 +147,8 @@ main(){
   # Get API key first (before any server operations)
   api_key=$(get_tavily_api_key)
   
-  if server_exists; then
-    if [[ $NO_REPLACE -eq 1 ]]; then
-      ok "$MCP_NAME already present (scope=$SCOPE); skipping due to --no-replace"
-      exit 0
-    fi
-    remove_server
-  else
-    log "$MCP_NAME not currently configured for scope=$SCOPE"
-  fi
+  # Always remove first to ensure clean overwrite
+  remove_server
   
   add_server "$api_key"
   

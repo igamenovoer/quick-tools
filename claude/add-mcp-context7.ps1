@@ -7,21 +7,20 @@
     add-mcp-context7.ps1
     If the server already exists under the chosen scope, it is removed first, then re-added.
     
-    Default behavior: scope = user
-    Command used to add:
-      claude mcp add -s user context7-mcp -- npx -y @upstash/context7-mcp
+    Default behavior: scope = user, mcp-name = context7-mcp
+    Runner preference: bunx > npx (picks first available)
+    Note: context7-mcp is only available as npm package, uvx is not supported.
+    Command used to add (example with npx):
+      claude mcp add-json -s user context7-mcp '{"command":"npx","args":["-y","@upstash/context7-mcp"]}'
 
 .PARAMETER Scope
-    Override scope (default: user). Valid values: user, global
+    Override scope (default: user). Valid values: local, user, project
+
+.PARAMETER McpName
+    Override MCP server name (default: context7-mcp)
 
 .PARAMETER DryRun
     Show actions without executing
-
-.PARAMETER NoReplace
-    Skip re-adding if already present (exit 0)
-
-.PARAMETER Force
-    Continue even if removal reports not found
 
 .PARAMETER Quiet
     Less output
@@ -30,7 +29,7 @@
     .\add-mcp-context7.ps1
     
 .EXAMPLE
-    .\add-mcp-context7.ps1 -Scope global -DryRun
+    .\add-mcp-context7.ps1 -Scope project -DryRun
 
 .NOTES
     Exit codes:
@@ -41,17 +40,15 @@
 [CmdletBinding()]
 param(
     [Parameter()]
-    [ValidateSet('user', 'global')]
+    [Alias('s')]
+    [ValidateSet('local', 'user', 'project')]
     [string]$Scope = 'user',
     
     [Parameter()]
+    [string]$McpName = 'context7-mcp',
+    
+    [Parameter()]
     [switch]$DryRun,
-    
-    [Parameter()]
-    [switch]$NoReplace,
-    
-    [Parameter()]
-    [switch]$Force,
     
     [Parameter()]
     [switch]$Quiet
@@ -95,6 +92,19 @@ function Exit-WithError {
     exit 1
 }
 
+function Get-Runner {
+    # context7-mcp is npm-only, no PyPI package available
+    if (Get-Command bunx -ErrorAction SilentlyContinue) {
+        return 'bunx'
+    }
+    elseif (Get-Command npx -ErrorAction SilentlyContinue) {
+        return 'npx'
+    }
+    else {
+        Exit-WithError "No suitable runner found (bunx or npx required; context7-mcp is npm-only)"
+    }
+}
+
 function Test-ServerExists {
     try {
         $list = claude mcp list 2>$null
@@ -102,8 +112,8 @@ function Test-ServerExists {
             Write-Warn "Could not list MCP servers (continuing)."
             return $false
         }
-        # Simple substring match
-        return $list -match '(^|[\s])context7-mcp(\s|$)'
+        # Match server name at start of line followed by colon
+        return $list -match "^${McpName}:"
     }
     catch {
         Write-Warn "Could not list MCP servers (continuing)."
@@ -112,48 +122,41 @@ function Test-ServerExists {
 }
 
 function Remove-Server {
-    Write-Log "Removing existing context7-mcp (scope=$Scope)"
+    Write-Log "Removing existing $McpName (scope=$Scope)"
     
     if ($DryRun) {
-        Write-Log "DRY-RUN: claude mcp remove -s $Scope context7-mcp"
+        Write-Log "DRY-RUN: claude mcp remove -s $Scope $McpName"
         return
     }
     
+    # Ignore errors - server may not exist
     try {
-        $output = claude mcp remove -s $Scope context7-mcp 2>&1
-        if ($LASTEXITCODE -ne 0) {
-            if ($Force) {
-                Write-Warn "Removal reported an issue; continuing due to -Force"
-            }
-            else {
-                Write-Warn "Removal failed; continuing to add anyway"
-            }
-        }
+        $null = claude mcp remove -s $Scope $McpName 2>$null
     }
     catch {
-        if ($Force) {
-            Write-Warn "Removal reported an issue; continuing due to -Force"
-        }
-        else {
-            Write-Warn "Removal failed; continuing to add anyway"
-        }
+        # Ignore
     }
 }
 
 function Add-Server {
-    Write-Log "Adding context7-mcp via npx (scope=$Scope)"
+    param([string]$Runner)
+    
+    Write-Log "Adding $McpName via $Runner (scope=$Scope)"
+    
+    # Build JSON config based on runner
+    $jsonConfig = switch ($Runner) {
+        'bunx' { '{"command":"bunx","args":["@upstash/context7-mcp"]}' }
+        'npx'  { '{"command":"npx","args":["-y","@upstash/context7-mcp"]}' }
+    }
     
     if ($DryRun) {
-        Write-Log "DRY-RUN: claude mcp add -s $Scope context7-mcp -- npx -y @upstash/context7-mcp"
+        Write-Log "DRY-RUN: claude mcp add-json -s $Scope $McpName '$jsonConfig'"
         return
     }
     
-    # Note: The -- separates claude options from the npx command
-    # Everything after -- is the actual command to run
-    # Using & call operator and proper argument separation for PowerShell
-    & claude mcp add -s $Scope context7-mcp '--' npx -y '@upstash/context7-mcp'
+    & claude mcp add-json -s $Scope $McpName $jsonConfig
     if ($LASTEXITCODE -ne 0) {
-        Exit-WithError "Failed to add context7-mcp server"
+        Exit-WithError "Failed to add $McpName server"
     }
 }
 
@@ -165,31 +168,25 @@ try {
         Exit-WithError "'claude' CLI not found in PATH"
     }
     
-    $serverExists = Test-ServerExists
+    # Detect runner
+    $runner = Get-Runner
+    Write-Log "Using runner: $runner"
     
-    if ($serverExists) {
-        if ($NoReplace) {
-            Write-Ok "context7-mcp already present (scope=$Scope); skipping due to -NoReplace"
-            exit 0
-        }
-        Remove-Server
-    }
-    else {
-        Write-Log "context7-mcp not currently configured for scope=$Scope"
-    }
+    # Always remove first to ensure clean overwrite
+    Remove-Server
     
-    Add-Server
+    Add-Server -Runner $runner
     
     $serverExists = Test-ServerExists
     if ($serverExists) {
-        Write-Ok "context7-mcp configured successfully (scope=$Scope)"
+        Write-Ok "$McpName configured successfully (scope=$Scope) using $runner"
     }
     else {
         if ($DryRun) {
             Write-Ok "DRY-RUN complete (no changes applied)"
         }
         else {
-            Write-Warn "context7-mcp not detected after add (check 'claude mcp list')."
+            Write-Warn "$McpName not detected after add (check 'claude mcp list')."
         }
     }
 }

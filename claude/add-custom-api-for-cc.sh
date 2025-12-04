@@ -71,7 +71,7 @@ if [[ -z $BASE_URL ]]; then
 fi
 if [[ -z $API_KEY ]]; then
   if [[ $YES_MODE -eq 1 ]]; then die "Missing --api_key (required with --yes)"; fi
-  if [[ -t 0 ]]; then read -srp "API key (--api_key, input hidden): " API_KEY; echo; else die "Missing --api_key"; fi
+  if [[ -t 0 ]]; then read -rp "API key (--api_key): " API_KEY; else die "Missing --api_key"; fi
 fi
 
 # Re-check empties after prompting

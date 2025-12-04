@@ -21,12 +21,6 @@
 .PARAMETER DryRun
     Show actions without executing
 
-.PARAMETER NoReplace
-    Skip re-adding if already present (exit 0)
-
-.PARAMETER Force
-    Continue even if removal reports not found
-
 .PARAMETER Quiet
     Less output
 
@@ -57,12 +51,6 @@ param(
     
     [Parameter()]
     [switch]$DryRun,
-    
-    [Parameter()]
-    [switch]$NoReplace,
-    
-    [Parameter()]
-    [switch]$Force,
     
     [Parameter()]
     [switch]$Quiet
@@ -165,24 +153,12 @@ function Remove-Server {
         return
     }
     
+    # Ignore errors - server may not exist
     try {
-        $output = claude mcp remove -s $Scope $McpName 2>&1
-        if ($LASTEXITCODE -ne 0) {
-            if ($Force) {
-                Write-Warn "Removal reported an issue; continuing due to -Force"
-            }
-            else {
-                Write-Warn "Removal failed; continuing to add anyway"
-            }
-        }
+        $null = claude mcp remove -s $Scope $McpName 2>$null
     }
     catch {
-        if ($Force) {
-            Write-Warn "Removal reported an issue; continuing due to -Force"
-        }
-        else {
-            Write-Warn "Removal failed; continuing to add anyway"
-        }
+        # Ignore
     }
 }
 
@@ -210,7 +186,7 @@ function Add-Server {
         "uvx" {
             @{
                 command = "uvx"
-                args = @("tavily-mcp")
+                args = @("mcp-tavily")
                 env = @{ TAVILY_API_KEY = $ApiKey }
             } | ConvertTo-Json -Compress
         }
@@ -243,18 +219,8 @@ try {
     # Get API key first
     $apiKey = Get-TavilyApiKey
     
-    $serverExists = Test-ServerExists
-    
-    if ($serverExists) {
-        if ($NoReplace) {
-            Write-Ok "$McpName already present (scope=$Scope); skipping due to -NoReplace"
-            exit 0
-        }
-        Remove-Server
-    }
-    else {
-        Write-Log "$McpName not currently configured for scope=$Scope"
-    }
+    # Always remove first to ensure clean overwrite
+    Remove-Server
     
     Add-Server -ApiKey $apiKey
     
