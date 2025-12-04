@@ -80,28 +80,74 @@ Write-Host "🔧 Configuring Claude Code to skip onboarding｜配置 Claude Code
 
 $configFile = Join-Path $env:USERPROFILE ".claude.json"
 
+# Check if jq is available
+$jqAvailable = $false
 try {
-    $config = @{}
-    
-    # Read existing config if it exists
-    if (Test-Path $configFile) {
-        try {
-            $configContent = Get-Content $configFile -Raw -ErrorAction Stop
-            $config = $configContent | ConvertFrom-Json -AsHashtable -ErrorAction Stop
-            Write-Host "📖 Found existing configuration｜找到现有配置"
-        } catch {
-            Write-Host "⚠️  Existing config is invalid, creating new one｜现有配置无效，创建新配置" -ForegroundColor Yellow
-            $config = @{}
+    $jqCmd = Get-Command jq -ErrorAction SilentlyContinue
+    if ($jqCmd) {
+        $jqAvailable = $true
+        Write-Host "📦 Using jq for JSON manipulation｜使用 jq 处理 JSON"
+    }
+} catch {
+    $jqAvailable = $false
+}
+
+if (-not $jqAvailable) {
+    Write-Host "📦 jq not found, using PowerShell JSON cmdlets｜未找到 jq，使用 PowerShell JSON 命令"
+}
+
+try {
+    if ($jqAvailable) {
+        # Use jq for JSON manipulation
+        if (Test-Path $configFile) {
+            # Check if existing file is valid JSON
+            $isValid = $false
+            try {
+                $null = Get-Content $configFile -Raw | jq empty 2>$null
+                if ($LASTEXITCODE -eq 0) {
+                    $isValid = $true
+                }
+            } catch {
+                $isValid = $false
+            }
+            
+            if ($isValid) {
+                Write-Host "📖 Found existing configuration｜找到现有配置"
+                $tempFile = "$configFile.tmp"
+                Get-Content $configFile -Raw | jq '.hasCompletedOnboarding = true' | Set-Content $tempFile -Encoding UTF8 -NoNewline
+                Move-Item $tempFile $configFile -Force
+            } else {
+                Write-Host "⚠️  Existing config is invalid, creating new one｜现有配置无效，创建新配置" -ForegroundColor Yellow
+                '{"hasCompletedOnboarding": true}' | jq '.' | Set-Content $configFile -Encoding UTF8 -NoNewline
+            }
+        } else {
+            Write-Host "📝 Creating new configuration｜创建新配置"
+            '{"hasCompletedOnboarding": true}' | jq '.' | Set-Content $configFile -Encoding UTF8 -NoNewline
         }
     } else {
-        Write-Host "📝 Creating new configuration｜创建新配置"
+        # Use PowerShell native JSON cmdlets
+        $config = @{}
+        
+        # Read existing config if it exists
+        if (Test-Path $configFile) {
+            try {
+                $configContent = Get-Content $configFile -Raw -ErrorAction Stop
+                $config = $configContent | ConvertFrom-Json -AsHashtable -ErrorAction Stop
+                Write-Host "📖 Found existing configuration｜找到现有配置"
+            } catch {
+                Write-Host "⚠️  Existing config is invalid, creating new one｜现有配置无效，创建新配置" -ForegroundColor Yellow
+                $config = @{}
+            }
+        } else {
+            Write-Host "📝 Creating new configuration｜创建新配置"
+        }
+        
+        # Set the flag
+        $config.hasCompletedOnboarding = $true
+        
+        # Write back
+        $config | ConvertTo-Json -Depth 10 | Set-Content $configFile -Encoding UTF8 -ErrorAction Stop
     }
-    
-    # Set the flag
-    $config.hasCompletedOnboarding = $true
-    
-    # Write back
-    $config | ConvertTo-Json -Depth 10 | Set-Content $configFile -Encoding UTF8 -ErrorAction Stop
     
     Write-Host "✅ Configuration updated successfully｜配置更新成功" -ForegroundColor Green
     Write-Host "📁 Config file location｜配置文件位置: $configFile"

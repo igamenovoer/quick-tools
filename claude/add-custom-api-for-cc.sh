@@ -123,44 +123,69 @@ else
   warn "Dry run mode: no files modified."
 fi
 
-# Final step: optionally create/overwrite settings.json with real API key as apiKeyHelper
+# Final step: optionally update settings.json if it exists and has apiKeyHelper
 finalize_settings() {
   local settings_dir="$HOME/.claude"
   local settings_file="$settings_dir/settings.json"
-  local need=0
+  
+  # Only proceed if settings.json exists AND contains apiKeyHelper
   if [[ ! -f $settings_file ]]; then
-    need=1
-  else
-    if ! grep -q '"apiKeyHelper"' "$settings_file" 2>/dev/null; then
-      need=1
-    fi
-  fi
-  [[ $need -eq 0 ]] && return 0
-  if [[ $DRY_RUN -eq 1 ]]; then
-    warn "[dry-run] Would offer to create apiKeyHelper in $settings_file"
     return 0
   fi
+  if ! grep -q '"apiKeyHelper"' "$settings_file" 2>/dev/null; then
+    return 0
+  fi
+
+  if [[ $DRY_RUN -eq 1 ]]; then
+    warn "[dry-run] Would offer to update apiKeyHelper in $settings_file"
+    return 0
+  fi
+  
   if [[ -t 0 ]]; then
     if [[ $YES_MODE -eq 1 ]]; then
-      warn "--yes supplied; skipping settings.json creation (apiKeyHelper absent)."
+      warn "--yes supplied; skipping settings.json update."
     else
-      echo -n "Create/overwrite $settings_file with apiKeyHelper that echoes your provided key? (OVERWRITES) [y/N]: "
+      echo -n "Found existing apiKeyHelper in $settings_file. Update with new key? [y/N]: "
       read -r ans || ans=""
       if [[ $ans =~ ^[Yy]$ ]]; then
-      mkdir -p "$settings_dir"
-      if [[ -f $settings_file ]]; then
-        cp -p "$settings_file" "$settings_file.bak.$(date +%Y%m%d%H%M%S)"
-        warn "Existing settings.json backed up to $(basename "$settings_file").bak.*"
-      fi
-      # Write the helper with literal key (user explicitly accepted overwrite)
-      printf '{"apiKeyHelper": "echo %s"}\n' "$API_KEY" > "$settings_file"
-      ok "Wrote apiKeyHelper to $settings_file"
+        # Check if jq is available
+        if command -v jq >/dev/null 2>&1; then
+          log "Using jq for JSON manipulation"
+          
+          # Backup existing file
+          cp -p "$settings_file" "$settings_file.bak.$(date +%Y%m%d%H%M%S)"
+          warn "Existing settings.json backed up"
+          
+          # Update existing config with apiKeyHelper
+          if jq empty "$settings_file" 2>/dev/null; then
+             jq --arg key "$API_KEY" '.apiKeyHelper = "echo " + $key' "$settings_file" > "$settings_file.tmp" && mv "$settings_file.tmp" "$settings_file"
+             ok "Updated apiKeyHelper in $settings_file"
+          else
+             warn "Existing settings.json is invalid JSON. Skipping update."
+          fi
+        else
+          log "jq not found, using raw string manipulation"
+          
+          cp -p "$settings_file" "$settings_file.bak.$(date +%Y%m%d%H%M%S)"
+          warn "Existing settings.json backed up"
+          
+          # Read existing content
+          local content
+          content=$(cat "$settings_file" || echo "")
+          
+          # We know apiKeyHelper exists because of the grep check at the top
+          if echo "$content" | sed "s|\"apiKeyHelper\"[[:space:]]*:[[:space:]]*\"[^\"]*\"|\"apiKeyHelper\": \"echo $API_KEY\"|" > "$settings_file"; then
+             ok "Updated apiKeyHelper in $settings_file"
+          else
+             warn "Failed to update settings.json"
+          fi
+        fi
       else
-        warn "Skipped settings.json creation; login prompt may appear if not configured."
+        warn "Skipped settings.json update."
       fi
     fi
   else
-    warn "Non-interactive: not creating settings.json (missing apiKeyHelper)."
+    warn "Non-interactive: not updating settings.json."
   fi
 }
 

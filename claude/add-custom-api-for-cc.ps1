@@ -161,6 +161,71 @@ try {
     Write-Host "       . `"$profilePath`""
     Write-Host "  2) Then run:"
     Write-Host "       $AliasName"
+    
+    # Optionally update settings.json if it exists and has apiKeyHelper
+    $settingsFile = Join-Path $env:USERPROFILE ".claude\settings.json"
+    
+    if (Test-Path $settingsFile) {
+        $settingsContent = Get-Content $settingsFile -Raw -ErrorAction SilentlyContinue
+        if ($settingsContent -and $settingsContent -match '"apiKeyHelper"') {
+            Write-Host ""
+            $ans = Read-Host "Found existing apiKeyHelper in $settingsFile. Update with new key? [y/N]"
+            if ($ans -match '^[Yy]$') {
+                # Check if jq is available
+                $jqAvailable = $false
+                try {
+                    $jqCmd = Get-Command jq -ErrorAction SilentlyContinue
+                    if ($jqCmd) {
+                        $jqAvailable = $true
+                    }
+                } catch {
+                    $jqAvailable = $false
+                }
+                
+                # Backup existing file
+                $backupFile = "$settingsFile.bak.$(Get-Date -Format 'yyyyMMddHHmmss')"
+                Copy-Item -Path $settingsFile -Destination $backupFile -Force
+                Write-Warn "Existing settings.json backed up to $backupFile"
+                
+                if ($jqAvailable) {
+                    Write-Info "Using jq for JSON manipulation"
+                    
+                    # Check if existing file is valid JSON
+                    $isValid = $false
+                    try {
+                        $null = Get-Content $settingsFile -Raw | jq empty 2>$null
+                        if ($LASTEXITCODE -eq 0) {
+                            $isValid = $true
+                        }
+                    } catch {
+                        $isValid = $false
+                    }
+                    
+                    if ($isValid) {
+                        $tempFile = "$settingsFile.tmp"
+                        Get-Content $settingsFile -Raw | jq --arg key $ApiKey '.apiKeyHelper = "echo " + $key' | Set-Content $tempFile -Encoding UTF8 -NoNewline
+                        Move-Item $tempFile $settingsFile -Force
+                        Write-Host "Updated apiKeyHelper in $settingsFile" -ForegroundColor Green
+                    } else {
+                        Write-Warn "Existing settings.json is invalid JSON. Skipping update."
+                    }
+                } else {
+                    Write-Info "jq not found, using PowerShell for JSON manipulation"
+                    
+                    try {
+                        $config = $settingsContent | ConvertFrom-Json -AsHashtable -ErrorAction Stop
+                        $config.apiKeyHelper = "echo $ApiKey"
+                        $config | ConvertTo-Json -Depth 10 | Set-Content $settingsFile -Encoding UTF8
+                        Write-Host "Updated apiKeyHelper in $settingsFile" -ForegroundColor Green
+                    } catch {
+                        Write-Warn "Failed to parse settings.json. Skipping update."
+                    }
+                }
+            } else {
+                Write-Warn "Skipped settings.json update."
+            }
+        }
+    }
 }
 catch {
     Write-Err "add-custom-api-for-cc.ps1 failed: $($_.Exception.Message)"
