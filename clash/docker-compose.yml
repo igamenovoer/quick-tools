@@ -1,0 +1,20 @@
+# this is how to run clash with docker
+
+services:
+  clash:
+    image: dreamacro/clash:v1.18.0
+    container_name: clash-proxy
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./config.yaml:/root/.config/clash/config.yaml:ro
+      - ./Country.mmdb:/root/.config/clash/Country.mmdb:ro
+      - ./cache.db:/root/.config/clash/cache.db
+    environment:
+      - TZ=Asia/Shanghai
+    command: -d /root/.config/clash
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
