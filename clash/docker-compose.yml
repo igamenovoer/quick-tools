@@ -1,8 +1,9 @@
-# this is how to run clash with docker
+# start clash proxy with docker
 
 services:
   clash:
     image: dreamacro/clash:v1.18.0
+    pull_policy: never
     container_name: clash-proxy
     restart: unless-stopped
     network_mode: host
