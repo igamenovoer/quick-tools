@@ -6,7 +6,7 @@ set -euo pipefail
 # If it already exists under the chosen scope, it is removed first, then re-added.
 #
 # Default behavior: scope = user, mcp-name = tavily
-# Runner preference: bunx > npx > uvx (picks first available)
+# Runner preference: npx > bunx > uvx (picks first available)
 # Command used to add (example with npx):
 #   claude mcp add-json -s user tavily '{"command":"npx","args":["-y","tavily-mcp@latest"],"env":{"TAVILY_API_KEY":"..."}}'
 #
@@ -53,12 +53,12 @@ done
 
 command -v claude >/dev/null 2>&1 || die "'claude' CLI not found in PATH"
 
-# Detect runner: bunx > npx > uvx
+# Detect runner: npx > bunx > uvx
 detect_runner(){
-  if command -v bunx >/dev/null 2>&1; then
-    echo "bunx"
-  elif command -v npx >/dev/null 2>&1; then
+  if command -v npx >/dev/null 2>&1; then
     echo "npx"
+  elif command -v bunx >/dev/null 2>&1; then
+    echo "bunx"
   elif command -v uvx >/dev/null 2>&1; then
     echo "uvx"
   else

@@ -6,7 +6,7 @@ set -euo pipefail
 # If it already exists under the chosen scope, it is removed first, then re-added.
 #
 # Default behavior: scope = user, mcp-name = context7-mcp
-# Runner preference: bunx > npx (picks first available)
+# Runner preference: npx > bunx (picks first available)
 # Note: context7-mcp is only available as npm package, uvx is not supported.
 # Command used to add (example with npx):
 #   claude mcp add-json -s user context7-mcp '{"command":"npx","args":["-y","@upstash/context7-mcp"]}'
@@ -54,12 +54,12 @@ done
 
 command -v claude >/dev/null 2>&1 || die "'claude' CLI not found in PATH"
 
-# Detect runner: bunx > npx (context7-mcp is npm-only, no PyPI package)
+# Detect runner: npx > bunx (context7-mcp is npm-only, no PyPI package)
 detect_runner(){
-  if command -v bunx >/dev/null 2>&1; then
-    echo "bunx"
-  elif command -v npx >/dev/null 2>&1; then
+  if command -v npx >/dev/null 2>&1; then
     echo "npx"
+  elif command -v bunx >/dev/null 2>&1; then
+    echo "bunx"
   else
     die "No suitable runner found (bunx or npx required; context7-mcp is npm-only)"
   fi
