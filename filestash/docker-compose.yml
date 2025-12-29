@@ -1,0 +1,74 @@
+services:
+  filestash-init:
+    image: machines/filestash:latest
+    container_name: filestash-init
+    restart: "no"
+    user: "0:0"
+    volumes:
+      - filestash_appdata:/appdata
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+    command:
+      - sh
+      - -lc
+      - |
+          set -eu
+
+          mkdir -p /appdata/state/certs /appdata/state/log
+
+          if [ ! -f /appdata/state/certs/ssl.crt ] || [ ! -f /appdata/state/certs/ssl.key ]; then
+            openssl req -x509 -nodes -newkey rsa:2048 -days 3650 \
+              -subj "/CN=filestash.local" \
+              -keyout /appdata/state/certs/ssl.key \
+              -out /appdata/state/certs/ssl.crt
+          fi
+
+          chown -R "${PUID}:${PGID}" /appdata
+          find /appdata -type d -exec chmod 0770 {} +
+          find /appdata -type f -exec chmod 0660 {} +
+          chmod 0644 /appdata/state/certs/ssl.crt
+          chmod 0600 /appdata/state/certs/ssl.key
+
+  filestash:
+    image: machines/filestash:latest
+    pull_policy: never
+    container_name: filestash
+    restart: unless-stopped
+    user: "${PUID:-1000}:${PGID:-1000}"
+    depends_on:
+      filestash-init:
+        condition: service_completed_successfully
+    expose:
+      - "8334"
+    volumes:
+      # Filestash app data (includes state/log/db/certs) as a Docker-managed volume
+      - filestash_appdata:/app/data
+      # Mount your data directory for browsing (read/write as your UID/GID)
+      - ${FILESTASH_DATA_DIR:?set FILESTASH_DATA_DIR in .env}:/data:rw
+    environment:
+      # Optional: set Filestash "public host" for absolute URLs (share links / redirects). Leave empty to
+      # rely on incoming `Host` and `X-Forwarded-*` headers from nginx.
+      - APPLICATION_URL=${FILESTASH_APPLICATION_URL:-}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8334/about"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  nginx:
+    image: nginx:alpine
+    container_name: filestash-nginx
+    restart: unless-stopped
+    ports:
+      - "0.0.0.0:${FILESTASH_HTTP_PORT:-11088}:80"    # HTTP (redirects to HTTPS)
+      - "0.0.0.0:${FILESTASH_HTTPS_PORT:-11089}:443"  # HTTPS
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - filestash_appdata:/certs:ro
+    depends_on:
+      - filestash
+
+volumes:
+  filestash_appdata: {}
