@@ -6,6 +6,7 @@ Wrapper scripts to execute standard file system commands inside a Docker contain
 
 - `ls-via-docker.sh`: List directory contents.
 - `ll-via-docker.sh`: List directory contents (long format).
+- `du-via-docker.sh`: Estimate file/directory disk usage.
 - `cp-via-docker.sh`: Copy files/directories.
 - `mkdir-via-docker.sh`: Create directories.
 - `chmod-via-docker.sh`: Change file modes/permissions.
