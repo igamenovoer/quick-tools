@@ -1,4 +1,11 @@
 #!/usr/bin/env sh
+# Usage:
+#   sh install-portable.sh --platform linux_x64
+#   sh install-portable.sh --platform mac_arm64 --verify-only
+#   sh install-portable.sh --platform linux_arm64 --force
+# Notes:
+#   - Called by per-platform wrappers under scripts/<platform-id>/.
+#   - Installs into <kit>/installed/<platform-id>/ without network access.
 set -eu
 
 platform=""

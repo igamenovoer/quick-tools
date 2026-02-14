@@ -1,5 +1,11 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
+REM Usage:
+REM   call activate.bat --kit-root C:\path\to\kit
+REM   call activate.bat --kit-root C:\path\to\kit --platform win32_x64
+REM   call activate.bat --kit-root C:\path\to\kit --persist
+REM Notes:
+REM   --persist delegates to activate.ps1 to update user environment vars.
 
 set "KIT_ROOT="
 set "PLATFORM_ID="

@@ -1,3 +1,12 @@
+<#
+Usage:
+  pwsh .\verify.ps1 -Platform win32_x64
+  pwsh .\verify.ps1 -Platform linux_arm64
+
+Notes:
+  - Verifies required files and SHA256 entries from `checksums.sha256`.
+  - Does not modify system or install anything.
+#>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]

@@ -1,4 +1,10 @@
 #!/usr/bin/env sh
+# Usage:
+#   sh verify.sh --platform linux_x64
+#   sh verify.sh --platform mac_arm64
+# Notes:
+#   - Checks required files and checksum integrity only.
+#   - Does not install or modify system state.
 set -eu
 
 platform=""

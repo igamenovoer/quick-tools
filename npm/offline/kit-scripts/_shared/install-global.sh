@@ -1,4 +1,11 @@
 #!/usr/bin/env sh
+# Usage:
+#   sudo sh install-global.sh --platform linux_x64
+#   sudo sh install-global.sh --platform mac_x64 --verify-only
+#   sudo sh install-global.sh --platform linux_arm64 --force
+# Notes:
+#   - Requires root privileges.
+#   - Installs Node/pnpm/tools into system locations.
 set -eu
 
 platform=""

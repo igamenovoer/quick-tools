@@ -1,4 +1,11 @@
 #!/usr/bin/env sh
+# Usage:
+#   . ./activate.sh --kit-root /path/to/kit
+#   ./activate.sh --kit-root /path/to/kit --persist
+#   ./activate.sh --kit-root /path/to/kit --unpersist
+# Notes:
+#   - Source (`.`) to update the current shell session.
+#   - `--persist` writes activation block to shell rc file.
 set -eu
 
 print_help() {

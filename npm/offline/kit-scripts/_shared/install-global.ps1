@@ -1,3 +1,13 @@
+<#
+Usage:
+  pwsh .\install-global.ps1 -Platform win32_x64
+  pwsh .\install-global.ps1 -Platform win32_x64 -VerifyOnly
+  pwsh .\install-global.ps1 -Platform win32_x64 -Force
+
+Notes:
+  - Windows-only global installer entry.
+  - Requires Administrator privileges.
+#>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]

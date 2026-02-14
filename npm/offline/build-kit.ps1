@@ -1,3 +1,14 @@
+<#
+Usage:
+  pwsh .\build-kit.ps1 -ConfigPath .\config.toml -OutputDir .\dist\npm-offline-kit -Force
+  pwsh .\build-kit.ps1 -ConfigPath .\config.toml -NoPnpmStore
+
+What this does:
+  - Resolves Node/pnpm versions (latest by default, optional pinning from config).
+  - Downloads Node + pnpm artifacts and verifies Node checksums.
+  - Resolves package versions, writes lockfile, and prefetches pnpm store.
+  - Emits a portable offline kit directory with per-platform scripts.
+#>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $false)]

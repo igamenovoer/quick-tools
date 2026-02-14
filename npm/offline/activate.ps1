@@ -1,3 +1,13 @@
+<#
+Usage:
+  . .\activate.ps1 -KitRoot C:\path\to\kit
+  . .\activate.ps1 -KitRoot C:\path\to\kit -Platform win32_x64
+  & .\activate.ps1 -KitRoot C:\path\to\kit -Persist
+
+Notes:
+  - Dot-source for current-session activation.
+  - `-Persist` writes user-level environment variables and PATH entries.
+#>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $false)]

@@ -1,3 +1,13 @@
+<#
+Usage:
+  pwsh .\install-portable.ps1 -Platform win32_x64
+  pwsh .\install-portable.ps1 -Platform linux_x64 -VerifyOnly
+  pwsh .\install-portable.ps1 -Platform mac_arm64 -Force
+
+Notes:
+  - Called by per-platform wrapper scripts under `scripts/<platform-id>/`.
+  - Installs into `<kit>/installed/<platform-id>/` without network access.
+#>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
