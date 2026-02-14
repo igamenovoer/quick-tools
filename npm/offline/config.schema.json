@@ -1,0 +1,108 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://example.invalid/npm-offline-kit/config.schema.json",
+    "title": "npm-offline-kit config.toml schema (v1)",
+    "description": "JSON Schema for validating the parsed representation of config.toml (TOML -> object). Minimal required fields are [platforms] enablement flags and packages. Versions are optional.",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+        "schema_version": {
+            "type": "integer",
+            "const": 1,
+            "description": "Optional schema version. If omitted, treat as 1."
+        },
+        "platforms": {
+            "type": "object",
+            "description": "Platform enablement table. At least one platform must be enabled (true).",
+            "additionalProperties": false,
+            "properties": {
+                "win32_x64": { "type": "boolean" },
+                "linux_x64": { "type": "boolean" },
+                "linux_arm64": { "type": "boolean" },
+                "mac_arm64": { "type": "boolean" },
+                "mac_x64": { "type": "boolean" }
+            }
+        },
+        "packages": {
+            "type": "array",
+            "description": "List of package specs to make installable offline as global tools. Entries may be unversioned (resolved to latest at build time) or pinned using npm-style specs (e.g., eslint@9.20.1).",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^\\s]+$"
+            }
+        },
+        "versions": {
+            "type": "object",
+            "description": "Optional pinned runtime/toolchain versions for reproducibility.",
+            "additionalProperties": false,
+            "properties": {
+                "node": {
+                    "type": "string",
+                    "description": "Pinned Node.js version, e.g. 24.1.0 or v24.1.0.",
+                    "pattern": "^v?\\d+\\.\\d+\\.\\d+$"
+                },
+                "pnpm": {
+                    "type": "string",
+                    "description": "Pinned pnpm version, e.g. 10.13.1.",
+                    "pattern": "^\\d+\\.\\d+\\.\\d+$"
+                }
+            }
+        },
+        "output_dir": {
+            "type": "string",
+            "description": "Optional kit output directory. If omitted, builder uses a default location.",
+            "minLength": 1
+        }
+    },
+    "required": ["platforms", "packages"],
+    "allOf": [
+        {
+            "anyOf": [
+                {
+                    "properties": {
+                        "platforms": {
+                            "required": ["win32_x64"],
+                            "properties": { "win32_x64": { "const": true } }
+                        }
+                    }
+                },
+                {
+                    "properties": {
+                        "platforms": {
+                            "required": ["linux_x64"],
+                            "properties": { "linux_x64": { "const": true } }
+                        }
+                    }
+                },
+                {
+                    "properties": {
+                        "platforms": {
+                            "required": ["linux_arm64"],
+                            "properties": { "linux_arm64": { "const": true } }
+                        }
+                    }
+                },
+                {
+                    "properties": {
+                        "platforms": {
+                            "required": ["mac_arm64"],
+                            "properties": { "mac_arm64": { "const": true } }
+                        }
+                    }
+                },
+                {
+                    "properties": {
+                        "platforms": {
+                            "required": ["mac_x64"],
+                            "properties": { "mac_x64": { "const": true } }
+                        }
+                    }
+                }
+            ]
+        }
+    ]
+}
+
