@@ -1,0 +1,20 @@
+packages = [
+  "typescript",
+  "eslint",
+  "npm-check-updates",
+]
+
+[platforms]
+win32_x64 = true
+linux_x64 = true
+linux_arm64 = false
+mac_arm64 = true
+mac_x64 = false
+
+# Optional: pin versions for reproducibility.
+#[versions]
+#node = "25.6.1"
+#pnpm = "10.29.3"
+#
+## Optional: pin packages via npm-style specs.
+## packages = ["eslint@9.20.1"]
